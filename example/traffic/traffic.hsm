@@ -1,0 +1,47 @@
+
+Machine(stoplight,30)
+{
+	// perform power on self test
+	Entry(DoPOST);
+
+	// first state is Red
+	Default(Red);
+
+	// poll for a FAILURE event
+	Idle(CheckForError);
+
+	// machine exits on FAILURE event
+	Terminate(FAILURE);
+
+	// if machine exits, switch to Flash Mode
+	Exit(EnableRedFlashMode);
+
+	// red light state
+	State(Red)
+	{
+		Entry(RedOn);
+		Exit(RedOff);
+
+		Transition(5.0,Green);
+	}
+
+	// green light state
+	State(Green)
+	{
+		Entry(GreenOn);
+		Exit(GreenOff);
+
+		Transition(5,Yellow);
+	}
+
+	// yellow light state
+	State(Yellow)
+	{
+		Entry(YellowOn);
+		Exit(YellowOff);
+
+		Transition(1.000000,Red);
+	}
+}
+
+

@@ -1,0 +1,24 @@
+
+
+TODO List - by Priority
+=======================
+
+
+* make sure Update not called from unsafe section (inside machine)
+
+* add transition guards
+  adds some complication (not much?)
+  can you then have multiple transitions per event?  I say NO.
+  needed?
+  
+* Add history?  Shallow?  Deep?
+
+* add C-style comment support?
+
+* change to using text templates for text output???
+
+* document language
+
+* document behavior (such as Transition always causing an exit+entry sequence)
+
+

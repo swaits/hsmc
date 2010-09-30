@@ -1,0 +1,98 @@
+<!DOCTYPE Project SYSTEM "http://www.slickedit.com/dtd/vse/8.1/vpj.dtd">
+<Project
+	Version="8.1"
+	VendorName="SlickEdit"
+	WorkingDir=".">
+	<Config
+		Name="Release"
+		OutputFile="">
+		<Menu>
+			<Target
+				Name="Compile"
+				MenuCaption="&amp;Compile"
+				CaptureOutputWith="ProcessBuffer"
+				SaveOption="SaveCurrent"
+				RunFromDir="%rw">
+				<Exec/>
+			</Target>
+			<Target
+				Name="Build"
+				MenuCaption="&amp;Build"
+				CaptureOutputWith="ProcessBuffer"
+				SaveOption="SaveWorkspaceFiles"
+				RunFromDir="%rw">
+				<Exec/>
+			</Target>
+			<Target
+				Name="Rebuild"
+				MenuCaption="&amp;Rebuild"
+				CaptureOutputWith="ProcessBuffer"
+				SaveOption="SaveWorkspaceFiles"
+				RunFromDir="%rw">
+				<Exec/>
+			</Target>
+			<Target
+				Name="Debug"
+				MenuCaption="&amp;Debug"
+				SaveOption="SaveNone"
+				RunFromDir="%rw">
+				<Exec/>
+			</Target>
+			<Target
+				Name="Execute"
+				MenuCaption="E&amp;xecute"
+				SaveOption="SaveNone"
+				RunFromDir="%rw">
+				<Exec CmdLine='"hsmc.exe"'/>
+			</Target>
+		</Menu>
+	</Config>
+	<CustomFolders>
+		<Folder
+			Name="Source Files"
+			Filters="*.c;*.C;*.cc;*.cpp;*.cp;*.cxx;*.prg;*.pas;*.dpr;*.asm;*.s;*.bas;*.java;*.cs;*.sc;*.e;*.cob;*.html;*.rc;*.tcl;*.py;*.pl">
+		</Folder>
+		<Folder
+			Name="Header Files"
+			Filters="*.h;*.H;*.hh;*.hpp;*.hxx;*.inc;*.sh;*.cpy;*.if">
+		</Folder>
+		<Folder
+			Name="Resource Files"
+			Filters="*.ico;*.cur;*.dlg"/>
+		<Folder
+			Name="Bitmaps"
+			Filters="*.bmp"/>
+		<Folder
+			Name="Other Files"
+			Filters=""/>
+	</CustomFolders>
+	<Files AutoFolders="DirectoryView">
+		<Folder Name="example">
+			<Folder Name="parsetest">
+				<F N="example/parsetest/parsetest.hsm"/>
+			</Folder>
+			<Folder Name="traffic">
+				<F N="example/traffic/main.cpp"/>
+				<F N="example/traffic/traffic.cpp"/>
+				<F N="example/traffic/traffic.h"/>
+				<F N="example/traffic/traffic.hsm"/>
+			</Folder>
+		</Folder>
+		<Folder Name="source">
+			<F N="source/autofile.h"/>
+			<F N="source/config.h"/>
+			<F N="source/getopt.cpp"/>
+			<F N="source/getopt.h"/>
+			<F N="source/hsm-lexer.c"/>
+			<F N="source/hsm-parser.tab.c"/>
+			<F N="source/hsm-parser.tab.h"/>
+			<F N="source/hsm.l"/>
+			<F N="source/hsm.y"/>
+			<F N="source/machine.h"/>
+			<F N="source/main.cpp"/>
+			<F N="source/main.h"/>
+			<F N="source/state.h"/>
+		</Folder>
+		<F N="TODO"/>
+	</Files>
+</Project>

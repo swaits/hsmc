@@ -1,0 +1,97 @@
+// TODO: add Timeout mechanism
+
+//
+//  * "Machine" is the root state
+//  * the event queue size is specified in the machine declaration
+//  * the root state is a state just like any other, nothing special
+//  * the root state is named TOPSTATE
+//  * A state may contain other states
+//  * A state may contain Default, Entry, Idle, Exit, Transition, Action, and Terminate
+//  * A single Default is allowed per state
+//  * There may only be one transition per event
+//  * Multiple actions are allowed per event
+//  * Multiple Entry, Idle, and Exit function calls are allowed
+//  * Terminate() causes all states to exit, including the root state
+//  * Multiple machines may exist per single input file
+//  * nested states must be represented hierarchically in input file via {} pairs
+//  * all keywords are case insensitive
+//  * keywords are reserved and CANNOT be used for identifiers
+//  * only C++ style comments are supported
+//  * C/C++ style source formatting suggested
+//  * whitespace is completely ignored
+//  * no empty machines
+//  * no empty states
+//  * symbols longer than 256 characters are truncated
+//
+
+
+// comment
+
+Machine(name,16) // Machine is a special alias to State
+{
+	// this is required in the main state
+	Default(FirstState);
+	//Default(seconddefault);
+	
+	// this is optional in the main state
+	Entry(mainentry);
+	Entry(mainentry2);
+	Entry(mainentry3);
+	Idle(blah);
+	Exit(mainexit);
+
+	sTaTe(FirstState)
+	{
+		ENTRY(blah);
+		idle(blah);
+		Exit(blah);
+
+		Transition(Event2,SecondState);
+		//Transition(Event2,xSecondState);
+		Action(Event,xAction);
+
+		
+		State(SubState){Idle(blah);State(SubSubState){Idle(ssblah);State(SubSubSubState){Idle(sssblah);}}}
+		//State(SubState){Idle(blah);State(SubSubState){Idle(ssblah);State(SubSubSubState){Idle(sssblah);}}}
+		
+		Terminate(reallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolreallyLongSymbolXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX);
+
+	}
+
+	State(SecondState)
+	{
+		Idle	( blah	) //
+		;
+		Transition(Event1,FirstState);
+		//Transition(sldfkj,blkjsdlfkja);
+	}
+
+	State(xSecondState)
+	{
+		Idle(blah);
+	}
+
+	State(SomeEndState)
+	{
+		Entry(blah);
+		Exit(blah);
+		Terminate(someevent);
+		Action(0.23,something);
+		//Terminate(someevent);
+	}
+	
+	Transition(1,FirstState);
+	Action(0.99, asldkfj);
+	Action(0.99, asldkfj1);
+	Action(0.99, asldkfj2);
+	//Transition(0., xSecondState);
+	//Action(0.00001,alsdjf);
+
+}
+
+Machine(othermach,1)
+{
+	Entry(blbla);
+}
+
+

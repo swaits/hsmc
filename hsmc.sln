@@ -1,0 +1,32 @@
+Microsoft Visual Studio Solution File, Format Version 8.00
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "hsmc", "hsmc.vcproj", "{C5786482-145A-4B2D-8AA9-2E7CBB1EE69C}"
+	ProjectSection(ProjectDependencies) = postProject
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SourceCodeControl) = preSolution
+		SccNumberOfProjects = 2
+		SccProjectName0 = Perforce\u0020Project
+		SccLocalPath0 = .
+		SccProvider0 = MSSCCI:Perforce\u0020SCM
+		CanCheckoutShared = true
+		SolutionUniqueID = {BC171BD2-EB06-48AD-A2D5-D4F6E43EA3EF}
+		SccProjectUniqueName1 = hsmc.vcproj
+		SccLocalPath1 = .
+		CanCheckoutShared = true
+	EndGlobalSection
+	GlobalSection(SolutionConfiguration) = preSolution
+		Debug = Debug
+		Release = Release
+	EndGlobalSection
+	GlobalSection(ProjectConfiguration) = postSolution
+		{C5786482-145A-4B2D-8AA9-2E7CBB1EE69C}.Debug.ActiveCfg = Debug|Win32
+		{C5786482-145A-4B2D-8AA9-2E7CBB1EE69C}.Debug.Build.0 = Debug|Win32
+		{C5786482-145A-4B2D-8AA9-2E7CBB1EE69C}.Release.ActiveCfg = Release|Win32
+		{C5786482-145A-4B2D-8AA9-2E7CBB1EE69C}.Release.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+	EndGlobalSection
+	GlobalSection(ExtensibilityAddIns) = postSolution
+	EndGlobalSection
+EndGlobal
