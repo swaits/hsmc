@@ -1,0 +1,17 @@
+\begin{theindex}
+
+  \item \ttfamily  Action, \hyperpage{4}, \hyperpage{6}, \hyperpage{13}
+  \item \ttfamily  Default, \hyperpage{12, 13}
+  \item \ttfamily  Entry, \hyperpage{6}, \hyperpage{13}
+  \item \ttfamily  Exit, \hyperpage{6}, \hyperpage{13}
+  \item \ttfamily  Idle, \hyperpage{6}, \hyperpage{13}
+  \item \ttfamily  Machine, \hyperpage{3, 4}, \hyperpage{12, 13}
+  \item \ttfamily  State, \hyperpage{4}, \hyperpage{12, 13}
+  \item \ttfamily  Terminate, \hyperpage{4}, \hyperpage{13}
+  \item \ttfamily  Transition, \hyperpage{4}, \hyperpage{12, 13}
+
+  \indexspace
+
+  \item blah, \hyperpage{21}
+
+\end{theindex}

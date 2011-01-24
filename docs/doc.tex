@@ -1,0 +1,952 @@
+
+\documentclass[titlepage,letterpaper]{report}
+\usepackage{makeidx}
+\usepackage{verbatim}
+\usepackage{listings}
+\usepackage[hyperindex,dvipdfm,bookmarksnumbered,colorlinks]{hyperref}
+
+\makeindex
+
+\title{HSM Compiler User Guide}
+\author{Stephen Waits}
+
+\begin{document}
+
+% Define State language for listings package
+%
+\lstdefinelanguage{State}
+  {morekeywords={Machine,State,Default,Entry,Idle,Exit,Transition,Action,Terminate},
+   sensitive=false,
+   morecomment=[l]{//}
+  }
+
+\lstset{% Configure listings defaults
+    language=State,
+    captionpos=b,
+		tabsize=2,
+    columns=flexible,
+    basicstyle=\small,
+    numberstyle=\tiny,
+    index={Machine,State,Default,Entry,Idle,Exit,Transition,Action,Terminate}
+  }
+
+\maketitle
+
+\pagenumbering{roman}
+
+\tableofcontents
+
+\newpage
+
+\lstlistoflistings
+
+\newpage
+
+\pagenumbering{arabic}
+
+
+
+
+\chapter{Introduction}
+
+\section{Overview}
+
+here's an overview of the this document.
+
+\section{Motivation}
+
+why create an HSM language and compiler?
+
+\section{Hierarchical State Machines}
+
+brief description on how hsm's work \cite{harel:sta}.
+
+
+
+\chapter{Hierarchical State Machine Compiler}
+
+\section{Overview}
+
+\emph{hsmc} is a command line based compiler, named \emph{hsmc.exe}.  It reads an HSM
+source input file, compiles it, and outputs two files (\emph{.cpp} and \emph{.h}).  Each HSM source 
+input file must define at least one valid Machine.  Only one input file can be compiled 
+at a time; however, that file may contain multiple Machine definitions (see \ref{hsm:file}).
+
+
+\section{Running the Compiler}
+
+Invoking \emph{hsmc} from the command line should print a usage statement:
+
+\begin{verbatim}
+HSMC - Hierarchical State Machine Compiler
+
+Usage: hsmc [-hdpq] [-o prefix] source_file
+
+  -h            this help
+  -d            include debugging information
+  -p            actions declared as pure virtual
+  -q            quiet mode (only output errors)
+  -o prefix     specify prefix for output files [prefix.cpp,prefix.h]
+  source_file   HSM source file
+\end{verbatim}
+
+
+To compile your HSM file using all defaults, you need only specify your source
+filename.  For example:
+
+\begin{verbatim}
+hsmc myfile.hsm
+\end{verbatim}
+
+outputs two files upon successful compilation: \emph{myfile.cpp} and \emph{myfile.h}.
+
+\subsection{Compiler Options}
+
+\label{hsmc:options}
+
+\begin{description}
+
+  \item[-h] Prints the usage statement.  This is equivalent to running \emph{hsmc} with no parameters.
+	
+	\item[-d] Include debugging information in the generated machine.  This includes considerably more
+	          calls to HSMDebug.  The debug strings are also available via HSMGetLastDebugMessage.
+						The debug strings consist of descriptions of the current state, current transitions, or
+						diagnostic messages.
+						
+	\item[-p] Actions, by default, are declared virtual member methods and defined to be empty.  This flag 
+	          causes these methods to be declared pure virtual and remain undefined. \label{opt:p}
+						
+	\item[-q] By default, \emph{hsmc} will output status messages during parsing, compilation, and code
+	          generation.  Specifying this flag causes the output to be quieted such that only errors
+						are emitted.
+						
+	\item[-o prefix] Specifies the output filename prefix.  By default this is set to the input filename
+	                 after it's been stripped of its extension.  So, for \emph{input.hsm}, the default 
+									 output prefix is \emph{input}.
+
+	                 To generate \emph{output.cpp} and \emph{output.h} from the input file \emph{input.hsm}, 
+									 you should specify the prefix explicitly:
+	                 \begin{verbatim}
+									 hsmc -o output input.hsm
+									 \end{verbatim}
+									 The output prefix may include a prepended directory path as well.
+									 
+\end{description}
+
+
+
+
+
+\section{Compiler Output}
+
+The \emph{hsmc} compiler outputs a C++ header file and a C++ source file.
+
+\subsection{Header File}
+
+The header file declares one class for each machine defined in the HSM source input
+file.
+
+Each machine class enumerates events, enumerates states, declares several methods
+common to all machines, and declares all actions (virtual) which should be overriden
+before the machine is instanced.
+
+For example, a machine declaration of:
+
+\begin{lstlisting}
+			Machine(MyMachine,16)
+			{
+				...
+			}
+\end{lstlisting}
+
+generates a class declaration of:
+
+\begin{lstlisting}[language=C++]
+			class MyMachine
+			{
+			public:
+				...
+			};
+\end{lstlisting}
+
+\subsubsection{Event Enumeration}
+
+\label{hsmc:events}
+
+A single \emph{enum} entry is generated for each event identifier referenced in 
+the HSM source input file.  This enumeration is within the scope of the machine
+class.
+
+For example, the following HSM source fragment:
+
+\begin{lstlisting}
+			Action(MOUSE_INPUT,BeepSound);
+			Transition(KEYBOARD_INPUT,NextState);
+			Terminate(CRITICAL_EVENT);
+\end{lstlisting}
+
+compiles to the following event enumeration:
+
+\begin{lstlisting}[language=C++]
+			// events
+			enum
+			{
+				MOUSE_INPUT = 0,
+				KEYBOARD_INPUT,
+				CRITICAL_EVENT
+			
+				___HSM_NUM_EVENTS___
+			};
+\end{lstlisting}
+
+
+\subsubsection{State Enumeration}
+
+\label{hsmc:states}
+
+A single \emph{enum} entry is generated for each state defined for a given machine in 
+the HSM source input file.  This enumeration is within the scope of the machine
+class.
+
+For example, the following HSM source fragment:
+
+\begin{lstlisting}
+			Machine(MyMachine,16)
+			{
+				State(BootUp) { ... }
+				State(AwaitInput) { ... }
+				State(ProcessInput) { ... }
+				...
+			}
+\end{lstlisting}
+
+compiles to the following state enumeration:
+
+\begin{lstlisting}[language=C++]
+			// states
+			enum
+			{
+				TOPSTATE = 0,
+				BootUp,
+				AwaitInput,
+				ProcessInput,
+			
+				___HSM_NUM_STATES___
+			};
+\end{lstlisting}
+
+The logical name of the root state is \emph{TOPSTATE}, as described in section \ref{hsm:machines}.
+
+\subsubsection{Common Method Declaration}
+
+These method declarations are common to every machine.
+
+\begin{lstlisting}[language=C++]
+			public:
+			
+				int  HSMGetCurrentState() const;
+				bool HSMIsRunning() const;
+			
+				void HSMConstruct();
+				void HSMDestruct();
+			
+				bool HSMUpdate(float dt = 0.0f);
+			
+				void HSMTrigger(int event);
+			
+				char* HSMGetLastDebugMessage();
+			
+			protected:
+			
+				// debug hook (override this to trap debug messages)
+				virtual void HSMDebug(char* msg);
+\end{lstlisting}
+
+\begin{description}
+
+\item[int  HSMGetCurrentState() const;] 
+
+    returns an integer, the enumeration id number of the current state as enumerated 
+		in the event numeration (\ref{hsmc:events}).  A negative integer (<0) is returned if 
+		the machine is not running.
+		
+\item[bool HSMIsRunning() const;]
+
+    returns \emph{true} if the machine has been constructed and is presently in a valid state.
+		returns \emph{false} if \emph{TOPSTATE} has exited, or the machine has not been constucted, 
+		or the machine has been destroyed.
+
+\item[void HSMConstruct();]
+
+    Called on a non-running machine to initialize the HSM, and cause a transition into \emph{TOPSTATE}.  
+		This does nothing if the machine is already running.
+
+\item[void HSMDestruct();]
+
+    Called on a running machine to cause an immediate transition to \emph{TOPSTATE}, followed by
+		the exit of \emph{TOPSTATE}.  This does nothing if the machine is not running.
+
+\item[bool HSMUpdate(float dt = 0.0f);]
+
+    Updates any timers according to \emph{dt}, adds an \emph{IDLE} event to the end of the event
+		queue, and then processes all events up to that \emph{IDLE} event.
+
+\item[void HSMTrigger(int event);]
+
+    Adds event to the event queue.  If event is invalid, it's ignored.  The event queue is processed
+		on the next call to HSMUpdate().
+
+\item[char* HSMGetLastDebugMessage();]
+
+    Returns a private character pointer to the last debug message.  This debug string is a textual
+		description of the last operation the machine performed, such as a transition, entry into a
+		state, or idling in a state.  
+		
+		See \ref{hsmc:options} for information on how to enable debugging information.
+
+\item[virtual void HSMDebug(char* msg);]
+
+    This function is empty by default and has no effect.  It is called throughout the machine internals
+		with debug messages; therefore, if you prefer immediate access to these messages, you should override
+		this function with your own.  This allows you to trap debug messages as they happen.
+		
+    These debug messages are the same as are accessible via HSMGetLastDebugMessage().
+
+		See \ref{hsmc:options} for information on how to enable debugging information.
+		
+\end{description}
+
+
+
+\subsubsection{Action Method Declarations}
+
+Action methods are user defined functions which need to be called by the HSM.  These actions
+are defined by Entry, Idle, Exit, and Action statements (see \ref{hsm:actions}).
+
+For example, the source input fragment:
+
+\begin{lstlisting}
+			Entry(MyEntryFunc);
+			Idle(MyIdleFunc);
+			Exit(MyExitFunc);
+			Action(SomeEvent, MySomeEventFunc);
+\end{lstlisting}
+
+is compiled to:
+
+\begin{lstlisting}[language=C++]
+			protected:
+			
+				// actions
+				virtual void MyEntryFunc();
+				virtual void MyIdleFunc();
+				virtual void MyExitFunc();
+				virtual void MySomeEventFunc();
+\end{lstlisting}
+
+Note that if the pure virtual option is specified (see \ref{hsmc:options}) then these methods
+would instead be declared as follows:
+
+\begin{lstlisting}[language=C++]
+			protected:
+			
+				// actions
+				virtual void MyEntryFunc() = 0;
+				virtual void MyIdleFunc() = 0;
+				virtual void MyExitFunc() = 0;
+				virtual void MySomeEventFunc() = 0;
+\end{lstlisting}
+
+\subsection{Source File}
+
+The source file contains all of the inner workings of the HSM.  In general, you need
+know nothing about this file to use \emph{hsmc}.  You may wish to browse through it
+in case you're curious about how the machines are implemented or if you're debugging
+your machine behavior.
+
+
+\section{Compiler Errors}
+
+You may encounter one or more of the following diagnostic error messages while
+compiling with \emph{hsmc}.  No output files are generated in the case of any error.
+
+\begin{description}
+
+	\item[source line number: Invalid event queue size for Machine 'machinename']
+	
+        The parser was not able to determine a valid queue size in the
+				declaration of 'machinename'.  See \ref{hsm:machines}.
+
+	\item[source line number: State 'statename' was previously defined]
+	
+        A state named 'statename' was already found in this machine.  See \ref{hsm:states}.
+					 
+	\item[source line number: multiple Default states defined in State 'statename']
+	
+        More than one state defined with the same name, 'statename'.  See \ref{hsm:states}.
+
+	\item[source line number: multiple Transition's on 'eventname' defined in 'statename']
+	
+        More than one transition defined for a single event (i.e. ambiguous transition).  See \ref{hsm:transitions}.
+
+	\item[source line number: multiple Terminate's on 'eventname' defined in 'statename']
+	
+        More than one terminate defined for a single event.  See \ref{hsm:termination}.
+
+  \item[ERROR: parser failed]
+	
+        The parser discovered an unrecoverable syntax error.  See \ref{hsm:lexical}.
+
+	\item[ERROR: unable to open 'filename'] 
+
+	      The compiler was unable to open an input file for reading or an
+				output file for writing.  Make sure the input file exists and is readable and
+				that the output file either doesn't exist, or is writable.
+
+  \item[ERROR: compilation aborted due to errors]
+	
+        The compiler aborted compilation because of errors.  These are most likely
+				semantic errors and will probably have been printed in addition to this
+				terminal diagnostic.
+
+\end{description}
+
+
+
+
+\chapter{Implementing a Machine}
+
+Step by step instructions on creating a machine, compiling it,
+inheriting it, and running it.
+
+\section{Design}
+
+
+\section{Compile}
+
+
+\section{Implement}
+
+
+
+
+\chapter{Examples}
+
+\section{Traffic Signal}
+
+\section{Soda Machine}
+
+
+
+
+\appendix
+
+
+
+
+
+
+\chapter{Frequently Asked Questions}
+
+\section{FAQ Category}
+
+\subsection{Question number 1?}
+
+Answer number 1.
+
+\subsection{Question number 2?}
+
+Answer number 2.
+
+
+
+
+
+
+
+
+
+
+
+
+\chapter{HSM Language Reference}
+
+\begin{verbatim}
+//  * A state may contain other states
+//  * A state may contain Default, Entry, Idle, Exit, Transition, Action, and Terminate
+//  * A single Default is allowed per state
+//  * There may only be one transition per event
+//  * Multiple actions are allowed per event
+//  * Multiple Entry, Idle, and Exit function calls are allowed
+//  * Terminate() causes all states to exit, including the root state
+//  * nested states must be represented hierarchically in input file via {} pairs
+//  * no empty states
+\end{verbatim}
+
+\section{General}
+
+The HSM language attempts to embody the most used, most important features
+of hierarchical state machines (as described by \cite{harel:sta}).  Some features
+from Harel's statecharts are missing from the HSM language, such as historic
+transitions.
+
+The language is designed to be easy to edit and manipulate, while remaining 
+syntactically similar to C++.
+
+\section{Lexical Elements}
+
+\label{hsm:lexical}
+
+\subsection{Character Set}
+
+The HSM source character set consists of 74 characters: the space character, the control characters
+representing the horizontal tab, and new-line, plus the following 71 graphical characters:
+
+\begin{verbatim}
+A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+0 1 2 3 4 5 6 7 8 9
+{ } ( ) , ; . _ /
+\end{verbatim}
+
+\subsection{Case Sensitivity}
+
+Keywords are not case sensitive.  Therefore, \emph{state}, \emph{STATE}, \emph{State}, and
+\emph{StAtE} are all equivalent.
+
+However, identifiers are case sensitive.  For example, the HSM in listing \ref{list:casesensitivity} defines two states, 
+named \emph{S} and \emph{s}; as well as two events, named \emph{E} and \emph{e}.
+
+\begin{lstlisting}[caption={Case Sensitivity on Identifiers},label={list:casesensitivity},float,frame=lines,numbers=left]
+Machine(m,16)
+{
+	// s is a default transition
+	Default(s);
+
+	// define state 's'
+	State(s)
+	{
+		// on event 'E', transition to state 'S'
+		Transition(E,S);
+	}
+
+	// define state 'S'
+	State(S)
+	{
+		// on event 'e', transition to state 's'
+		Transition(e,s);
+	}
+}
+\end{lstlisting}
+
+\subsection{Line Format}
+
+Whitespace is completely ignored; therefore, lines do not require separation by new-line
+characters, nor any special formatting with space characters.
+
+All keywords other than \emph{Machine} and \emph{State} require a semicolon.
+
+\subsection{Source Layout}
+
+\label{hsm:file}
+
+Each single HSM source input file must define at least one syntactically correct 
+Machine (see \ref{hsm:machines}).  There is no limit to the number of machines allowed
+in a single input file.
+
+\subsection{Keywords}
+
+\label{hsm:keywords}
+
+Exactly nine keywords are defined.  They are listed in listing \ref{list:keywords} and
+described in detail in sections
+\ref{hsm:machines}, 
+\ref{hsm:states}, 
+\ref{hsm:actions}, 
+and
+\ref{hsm:transitions}, 
+
+\begin{lstlisting}[caption={Keywords},label={list:keywords},float,frame=lines]
+Machine
+State
+Default
+Entry
+Idle
+Exit
+Transition
+Action
+Terminate
+\end{lstlisting}
+
+\subsection{Identifiers}
+
+Identifiers are used to name Machines, States, and Events.  The first character of
+an identifier must be one of the 53 graphical characters in the set:
+\begin{verbatim}
+A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+_
+\end{verbatim}
+and any characters after the first may be any of the 63 graphical characters in the set:
+\begin{verbatim}
+A B C D E F G H I J K L M N O P Q R S T U V W X Y Z
+a b c d e f g h i j k l m n o p q r s t u v w x y z
+_
+0 1 2 3 4 5 6 7 8 9
+\end{verbatim}
+Identifiers longer than 256 characters are not permitted.
+
+Examples of valid and invalid identifiers may be found in listing \ref{list:identifiers}.
+
+\begin{lstlisting}[caption={Identifier Examples},label={list:identifiers},float,frame=lines]
+IDENTIFIER
+Identifier
+identifier
+iDeNtifier
+_identifier
+_000000
+_id0
+id100
+0id // invalid
+100id // invalid
+\end{lstlisting}
+
+
+\subsection{Numeric Literals}
+
+Numeric literals are used in the HSM language to specify event queue size (\ref{hsm:machines}) as well as 
+time values used in timed actions (\ref{hsm:actionstimed})
+and timed transitions (\ref{hsm:transitionstimed}).  
+They may be whole integers or floating point numbers, and must be positive.  They must be composed of the digits
+0 through 9, and may include a single decimal point denoted by the period character.
+
+\subsection{Reserved Words}
+\label{hsm:reserved}
+
+Ten reserved words are defined.  They include the word \emph{TOPSTATE} plus the nine keywords defined in \ref{hsm:keywords}.
+
+These words are all reserved and cannot be used as identifiers.
+
+\subsection{Comments}
+
+The characters \emph{//} start a comment, which terminates with the next new-line character.
+
+\section{Scope}
+
+Scope is controlled with the curly brace characters, \emph{\{} and \emph{\}}.  These apply
+to Machine and State definitions (see \ref{hsm:machines} and \ref{hsm:states}).
+
+This scoping mechanism is what allows for the nesting of states, making these state 
+machines hierarchical \cite{harel:sta}.
+
+\section{Machines}
+
+\label{hsm:machines}
+
+\begin{description}
+\item[Machine(name,queuesize) \{ ... \}] \emph{name} is the unique identifier for this machine; \emph{queuesize}
+                                       is the static size of the event queue and must be a
+																			 whole integer greater than 0; \emph{...} is the machine definition
+																			 which must qualify as a valid state definition (see \ref{hsm:states}).
+\end{description}
+
+Machine is declaration and definition of the root state of a Hierarchical State Machine.  
+
+Machine is nearly synonymous with State, with the addition of requiring an event queue size 
+specification. Therefore, everything valid in the definition of a State is also valid in the definition of
+a Machine.  As such, a Machine definition may contain zero or more substates; however, it may not be empty.
+See \ref{hsm:states}.
+
+The state defined by Machine is the root state
+in the state hierarchy. It is identified by the reserved identifier \emph{TOPSTATE} (see \ref{hsm:reserved}),
+a convention set forth in \cite{samek:psc}.
+This automatic identification is necessary to allow explicit transitions to the root state.
+It is the first state entered upon machine construction.
+
+\section{States}
+
+\label{hsm:states}
+
+May contain any number of substates.
+
+\section{Actions}
+
+\label{hsm:actions}
+
+\subsection{Normal}
+
+\subsection{Timed}
+
+\label{hsm:actionstimed}
+
+\subsection{Special}
+
+\section{Transitions}
+
+\label{hsm:transitions}
+
+\subsection{Normal}
+
+\subsection{Timed}
+
+\label{hsm:transitionstimed}
+
+\subsection{Default}
+
+\label{hsm:default}
+
+\subsection{Termination}
+
+\label{hsm:termination}
+
+
+
+\chapter{HSMC lex and yacc Source}
+
+\section{lex, lexical scanner}
+\begin{lstlisting}[language=C,caption={hsmc.l (lex source)},numbers=left,columns=fixed]
+%{
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "hsm-parser.tab.h"
+
+int lineno = 1;
+
+void yyerror(char* s);
+
+%}
+
+
+%%
+
+  /* whitespace */
+
+[ \t]+                                    ; /* skip whitespace */
+
+  
+
+  /* comments */
+
+"//".*                                    ; /* skip C++ comments */
+
+
+  /* punctuation */
+
+","                                       { return ','; }
+";"                                       { return ';'; }
+"{"                                       { return '{'; }
+"}"                                       { return '}'; }
+"("                                       { return '('; }
+")"                                       { return ')'; }
+
+
+  /* keywords */
+
+[Mm][Aa][Cc][Hh][Ii][Nn][Ee]              { return MACHINE; }
+[Ss][Tt][Aa][Tt][Ee]                      { return STATE; }
+[Dd][Ee][Ff][Aa][Uu][Ll][Tt]              { return DEFAULT; }
+[Ee][Nn][Tt][Rr][Yy]                      { return ENTRY; }
+[Ii][Dd][Ll][Ee]                          { return IDLE; }
+[Ee][Xx][Ii][Tt]                          { return EXIT; }
+[Tt][Rr][Aa][Nn][Ss][Ii][Tt][Ii][Oo][Nn]  { return TRANSITION; }
+[Aa][Cc][Tt][Ii][Oo][Nn]                  { return ACTION; }
+[Tt][Ee][Rr][Mm][Ii][Nn][Aa][Tt][Ee]      { return TERMINATE; }
+
+
+  /* identifiers */
+
+[a-zA-Z_][a-zA-Z_0-9]*      { 
+	if ( strlen(yytext) > 256 ) 
+		printf(
+		"%d: truncating symbol '%s' to 256 characters\n",
+		lineno,yytext); 
+	strncpy(yylval.string,yytext,256); 
+	return IDENTIFIER;
+														}
+
+  
+  /* constants */
+  
+[0-9]+\.?[0-9]*             { 
+	yylval.constant = (float)atof(yytext); 
+	return CONSTANT; 
+	                          }
+
+
+  /* newlines, etc. */
+
+\n                          { lineno++; }
+.                           ; /* ignore */
+
+
+%%
+
+int yywrap()
+{
+        return 1;
+}
+
+void yyerror(char* s)
+{
+        printf("\n%d: %s at %s\n", lineno, s, yytext);
+}
+\end{lstlisting}
+
+\section{yacc, parser}
+\begin{lstlisting}[language=C,deleteemph={default},caption={hsmc.y (yacc source)},numbers=left,columns=fixed]
+%{
+extern int yylex();
+extern void yyerror(char* s);
+
+#include "main.h"
+%}
+
+%union
+{
+        char  string[258];
+        float constant;
+}
+
+%token MACHINE
+%token STATE
+%token DEFAULT
+%token ENTRY
+%token IDLE
+%token EXIT
+%token TRANSITION
+%token ACTION
+%token TERMINATE
+
+%token <string> IDENTIFIER
+%token <constant> CONSTANT
+
+%%
+
+machines: machine
+        | machines machine
+        ;
+        
+machine: machine_decl '{' state_items '}'   
+         { 
+           parseEndMachine(); 
+         }
+       ;
+       
+state_items: state_item
+           | state_items state_item
+           ;
+
+state_item: state
+          | statement
+          ;
+
+state: state_decl '{' state_items '}'   
+       { 
+         parseEndState(); 
+       }
+     ;
+     
+statement: default ';'
+         | entry ';'
+         | idle ';'
+         | exit ';'
+         | transition ';'
+         | action ';'
+         | timetransition ';'
+         | timeaction ';'
+         | terminate ';'
+         ;
+         
+machine_decl: MACHINE '(' IDENTIFIER ',' CONSTANT ')'   
+              { 
+                parseBeginMachine($3,(int)$5);
+              }
+            ;
+            
+state_decl: STATE '(' IDENTIFIER ')'  
+            { 
+              parseBeginState($3);
+            }
+          ;
+         
+default: DEFAULT '(' IDENTIFIER ')'
+         {
+           parseDefault($3);
+         }
+       ;
+        
+entry: ENTRY '(' IDENTIFIER ')'  
+       { 
+         parseEntry($3);
+       }
+     ;
+        
+idle: IDLE '(' IDENTIFIER ')'
+      {
+        parseIdle($3);
+      }
+    ;
+        
+exit: EXIT '(' IDENTIFIER ')'
+      {
+        parseExit($3);
+      }
+    ;
+        
+transition: TRANSITION '(' IDENTIFIER ',' IDENTIFIER ')'
+            { 
+              parseTransition($3,$5);
+            }
+          ;
+        
+action: ACTION '(' IDENTIFIER ',' IDENTIFIER ')'
+        {
+          parseAction($3,$5);
+        }
+      ;
+        
+timetransition: TRANSITION '(' CONSTANT ',' IDENTIFIER ')'
+                { 
+                  parseTimeTransition($3,$5);
+                }
+              ;
+        
+timeaction: ACTION '(' CONSTANT ',' IDENTIFIER ')'
+            {
+              parseTimeAction($3,$5);
+            }
+          ;
+        
+terminate: TERMINATE '(' IDENTIFIER ')'
+           {
+             parseTerminate($3);
+           }
+         ;
+\end{lstlisting}
+
+
+
+
+\newpage
+\addcontentsline{toc}{chapter}{Glossary}
+\chapter*{Glossary}
+\begin{description}
+  \item[blah] A blah is a blah blah blah!\index{blah}
+\end{description}
+
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliographystyle{alpha}
+\bibliography{doc}
+
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+
+\end{document}
+
+
+

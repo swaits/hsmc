@@ -1,0 +1,14 @@
+\begin{thebibliography}{Sam02}
+
+\bibitem[Har87]{harel:sta}
+David Harel.
+\newblock Statecharts: {A} {V}isual {F}ormalism for {C}omplex {S}ystems.
+\newblock {\em Science of Computer Programming}, 8(3):231--274, 1987.
+
+\bibitem[Sam02]{samek:psc}
+Miro Samek.
+\newblock {\em Practical Statecharts in C/C++: Quantum Programming for Embedded
+  Systems}.
+\newblock CMP Books, 2002.
+
+\end{thebibliography}

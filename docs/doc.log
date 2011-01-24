@@ -1,0 +1,338 @@
+This is e-TeXk, Version 3.141592-2.1 (Web2c 7.5.2) (format=latex 2004.6.4)  24 JUN 2004 17:50
+entering extended mode
+ %&-line parsing enabled.
+ (c:/Program Files/TeXLive/texmf/web2c/cp8bit.tcx)
+**doc
+(./doc.tex
+LaTeX2e <2001/06/01>
+Babel <v3.7o> and hyphenation patterns for english, dumylang, nohyphenation, ba
+sque, czech, slovak, german, ngerman, spanish, catalan, french, ukenglish, ital
+ian, dutch, polish, portuguese, loaded.
+(c:/Program Files/TeXLive/texmf/tex/latex/base/report.cls
+Document Class: report 2001/04/21 v1.4e Standard LaTeX document class
+(c:/Program Files/TeXLive/texmf/tex/latex/base/size10.clo
+File: size10.clo 2001/04/21 v1.4e Standard LaTeX file (size option)
+)
+\c@part=\count79
+\c@chapter=\count80
+\c@section=\count81
+\c@subsection=\count82
+\c@subsubsection=\count83
+\c@paragraph=\count84
+\c@subparagraph=\count85
+\c@figure=\count86
+\c@table=\count87
+\abovecaptionskip=\skip41
+\belowcaptionskip=\skip42
+\bibindent=\dimen102
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/base/makeidx.sty
+Package: makeidx 2000/03/29 v1.0m Standard LaTeX package
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/tools/verbatim.sty
+Package: verbatim 2001/03/12 v1.5p LaTeX2e package for verbatim enhancements
+\every@verbatim=\toks14
+\verbatim@line=\toks15
+\verbatim@in@stream=\read1
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/listings.sty
+Package: listings 2004/02/13 1.2 (Carsten Heinz)
+
+(c:/Program Files/TeXLive/texmf/tex/latex/graphics/keyval.sty
+Package: keyval 1999/03/16 v1.13 key=value parser (DPC)
+\KV@toks@=\toks16
+)
+\lst@mode=\count88
+\lst@gtempboxa=\box26
+\lst@token=\toks17
+\lst@length=\count89
+\lst@currlwidth=\dimen103
+\lst@column=\count90
+\lst@pos=\count91
+\lst@lostspace=\dimen104
+\lst@width=\dimen105
+\lst@newlines=\count92
+\lst@lineno=\count93
+\c@lstlisting=\count94
+\lst@maxwidth=\dimen106
+
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/lstpatch.sty
+File: lstpatch.sty 2004/02/18 1.2b (Carsten Heinz)
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/lstmisc.sty
+File: lstmisc.sty 2004/02/13 1.2 (Carsten Heinz)
+\c@lstnumber=\count95
+\lst@skipnumbers=\count96
+\lst@framebox=\box27
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/listings.cfg
+File: listings.cfg 2004/02/13 1.2 listings configuration
+))
+(c:/Program Files/TeXLive/texmf/tex/latex/hyperref/hyperref.sty
+Package: hyperref 2003/11/30 v6.74m Hypertext links for LaTeX
+\@linkdim=\dimen107
+\Hy@linkcounter=\count97
+\Hy@pagecounter=\count98
+
+(c:/Program Files/TeXLive/texmf/tex/latex/hyperref/pd1enc.def
+File: pd1enc.def 2003/11/30 v6.74m Hyperref: PDFDocEncoding definition (HO)
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/texlive/hyperref.cfg
+File: hyperref.cfg 2002/06/06 v1.2 hyperref configuration of TeXLive
+)
+Package hyperref Info: Option `hyperindex' set `true' on input line 1830.
+Package hyperref Info: Option `bookmarksnumbered' set `true' on input line 1830
+.
+Package hyperref Info: Option `colorlinks' set `true' on input line 1830.
+Package hyperref Info: Hyper figures OFF on input line 1880.
+Package hyperref Info: Link nesting OFF on input line 1885.
+Package hyperref Info: Hyper index ON on input line 1888.
+Package hyperref Info: Plain pages ON on input line 1893.
+Package hyperref Info: Backreferencing OFF on input line 1900.
+
+Implicit mode ON; LaTeX internals redefined
+Package hyperref Info: Bookmarks ON on input line 2004.
+(c:/Program Files/TeXLive/texmf/tex/latex/ltxmisc/url.sty
+\Urlmuskip=\muskip10
+Package: url 2003/11/24  ver 3.0  Verb mode for urls, etc.
+)
+LaTeX Info: Redefining \url on input line 2143.
+\Fld@menulength=\count99
+\Field@Width=\dimen108
+\Fld@charsize=\dimen109
+\Choice@toks=\toks18
+\Field@toks=\toks19
+Package hyperref Info: Hyper figures OFF on input line 2618.
+Package hyperref Info: Link nesting OFF on input line 2623.
+Package hyperref Info: Hyper index ON on input line 2626.
+Package hyperref Info: backreferencing OFF on input line 2633.
+Package hyperref Info: Link coloring ON on input line 2636.
+\c@Item=\count100
+\c@Hfootnote=\count101
+)
+*hyperref using driver hdvipdfm*
+(c:/Program Files/TeXLive/texmf/tex/latex/hyperref/hdvipdfm.def
+File: hdvipdfm.def 2003/11/30 v6.74m Hyperref driver for dvipdfm
+\pdfm@box=\box28
+\Fld@listcount=\count102
+\@outlinefile=\write3
+)
+\@indexfile=\write4
+\openout4 = `doc.idx'.
+
+
+Writing index file doc.idx
+(./doc.aux)
+\openout1 = `doc.aux'.
+
+LaTeX Font Info:    Checking defaults for OML/cmm/m/it on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for T1/cmr/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for OT1/cmr/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for OMS/cmsy/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for OMX/cmex/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for U/cmr/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+LaTeX Font Info:    Checking defaults for PD1/pdf/m/n on input line 13.
+LaTeX Font Info:    ... okay on input line 13.
+ (c:/Program Files/TeXLive/texmf/tex/latex/graphics/color.sty
+Package: color 1999/02/16 v1.0i Standard LaTeX Color (DPC)
+
+(c:/Program Files/TeXLive/texmf/tex/latex/texlive/color.cfg
+File: color.cfg 2001/08/31 v1.1 color configuration of teTeX/TeXLive
+)
+Package color Info: Driver file: dvips.def on input line 125.
+
+(c:/Program Files/TeXLive/texmf/tex/latex/graphics/dvips.def
+File: dvips.def 1999/02/16 v3.0i Driver-dependant file (DPC,SPQR)
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/graphics/dvipsnam.def
+File: dvipsnam.def 1999/02/16 v3.0i Driver-dependant file (DPC,SPQR)
+))
+Package hyperref Info: Link coloring ON on input line 13.
+
+(c:/Program Files/TeXLive/texmf/tex/latex/hyperref/nameref.sty
+Package: nameref 2003/12/03 v2.21 Cross-referencing by name of section
+\c@section@level=\count103
+)
+LaTeX Info: Redefining \ref on input line 13.
+LaTeX Info: Redefining \pageref on input line 13.
+ (./doc.out)
+(./doc.out)
+\openout3 = `doc.out'.
+
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <12> on input line 34.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <8> on input line 34.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <6> on input line 34.
+ [1
+
+] (./doc.toc
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <7> on input line 2.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <5> on input line 2.
+ [1
+
+])
+\tf@toc=\write5
+\openout5 = `doc.toc'.
+
+ [2] (./doc.lol)
+\tf@lol=\write6
+\openout6 = `doc.lol'.
+
+ [3
+
+]
+Chapter 1.
+[1
+
+]
+Chapter 2.
+
+Overfull \hbox (17.24684pt too wide) in paragraph at lines 89--89
+[]  \OT1/cmtt/m/n/10 -o prefix     specify prefix for output files [prefix.cpp,
+prefix.h][] 
+ []
+
+[2
+
+]
+LaTeX Font Info:    Try loading font information for OMS+cmr on input line 157.
+
+ (c:/Program Files/TeXLive/texmf/tex/latex/base/omscmr.fd
+File: omscmr.fd 1999/05/25 v2.5h Standard LaTeX font definitions
+)
+LaTeX Font Info:    Font shape `OMS/cmr/m/n' in size <9> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 157.
+
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2004/02/13 1.2 listings language file
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/lstlang1.sty
+File: lstlang1.sty 2004/02/13 1.2 listings language file
+)
+(c:/Program Files/TeXLive/texmf/tex/latex/listings/lstmisc.sty
+File: lstmisc.sty 2004/02/13 1.2 (Carsten Heinz)
+) [3] [4]
+[5] [6]
+Overfull \hbox (26.78555pt too wide) in paragraph at lines 377--379
+[]
+ []
+
+
+Overfull \hbox (24.18411pt too wide) in paragraph at lines 386--387
+[]
+ []
+
+
+Overfull \hbox (63.07977pt too wide) in paragraph at lines 390--391
+[]
+ []
+
+
+Overfull \hbox (63.33536pt too wide) in paragraph at lines 394--395
+[]
+ []
+
+[7]
+Chapter 3.
+[8
+
+]
+Chapter 4.
+[9
+
+]
+Appendix A.
+[10
+
+]
+Appendix B.
+
+Overfull \hbox (111.74602pt too wide) in paragraph at lines 476--476
+[]\OT1/cmtt/m/n/10 //  * A state may contain Default, Entry, Idle, Exit, Transi
+tion, Action, and Terminate[] 
+ []
+
+
+Overfull \hbox (17.24684pt too wide) in paragraph at lines 481--481
+[]\OT1/cmtt/m/n/10 //  * Terminate() causes all states to exit, including the r
+oot state[] 
+ []
+
+
+Overfull \hbox (80.24629pt too wide) in paragraph at lines 482--482
+[]\OT1/cmtt/m/n/10 //  * nested states must be represented hierarchically in in
+put file via {} pairs[] 
+ []
+
+[11
+
+] [12] [13]
+LaTeX Font Info:    Font shape `OMS/cmr/m/it' in size <10> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 636.
+LaTeX Font Info:    Font shape `OMS/cmr/bx/n' in size <10> not available
+(Font)              Font shape `OMS/cmsy/b/n' tried instead on input line 647.
+ [14] [15]
+Appendix C.
+LaTeX Font Info:    Try loading font information for OML+cmr on input line 710.
+
+(c:/Program Files/TeXLive/texmf/tex/latex/base/omlcmr.fd
+File: omlcmr.fd 1999/05/25 v2.5h Standard LaTeX font definitions
+)
+LaTeX Font Info:    Font shape `OML/cmr/m/n' in size <9> not available
+(Font)              Font shape `OML/cmm/m/it' tried instead on input line 710.
+LaTeX Font Info:    External font `cmex10' loaded for size
+(Font)              <9> on input line 714.
+LaTeX Font Info:    Font shape `OMS/cmr/m/it' in size <9> not available
+(Font)              Font shape `OMS/cmsy/m/n' tried instead on input line 725.
+
+Overfull \hbox (15.75119pt too wide) in paragraph at lines 727--731
+[][][][][][][][][][][][][][][][][][][][][] 
+ []
+
+
+Overfull \hbox (26.85123pt too wide) in paragraph at lines 733--736
+[][][][][][][][][][][][][][][][][][][][][][][] 
+ []
+
+[16
+
+]
+Overfull \hbox (10.20117pt too wide) in paragraph at lines 754--755
+[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][] 
+ []
+
+
+Overfull \hbox (4.65115pt too wide) in paragraph at lines 756--759
+[][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][][] 
+ []
+
+[17] [18] [19] [20] [21
+
+] (./doc.bbl) [22
+
+
+] (./doc.ind [23
+
+
+
+]) (./doc.aux) ) 
+Here is how much of TeX's memory you used:
+ 4033 strings out of 95538
+ 56407 string characters out of 1190382
+ 120230 words of memory out of 1551190
+ 7062 multiletter control sequences out of 10000+50000
+ 11441 words of font info for 40 fonts, out of 1000000 for 2000
+ 117 hyphenation exceptions out of 1000
+ 33i,6n,70p,228b,869s stack positions out of 5000i,500n,6000p,200000b,40000s
+
+Output written on doc.dvi (27 pages, 115212 bytes).

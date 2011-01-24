@@ -1,0 +1,4241 @@
+#LyX file created by  tex2lyx 0.1.2
+\lyxformat 245
+\begin_document
+\begin_header
+\textclass report
+\begin_preamble
+
+
+
+
+\usepackage{listings}
+
+\usepackage[hyperindex,dvipdfm,bookmarksnumbered,colorlinks]{hyperref}
+
+
+\makeindex
+
+\title{HSM Compiler User Guide}
+\author{Stephen Waits}
+
+
+\end_preamble
+\options titlepage,letterpaper
+\language english
+\inputencoding latin1
+\fontscheme default
+\graphics default
+\paperfontsize default
+\spacing single
+\papersize default
+\use_geometry false
+\use_amsmath 0
+\cite_engine basic
+\use_bibtopic false
+\paperorientation portrait
+\secnumdepth 3
+\tocdepth 3
+\paragraph_separation indent
+\defskip medskip
+\quotes_language english
+\papercolumns 1
+\papersides 1
+\paperpagestyle default
+\tracking_changes false
+\output_changes false
+\end_header
+
+\begin_body
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+% Define State language for listings package
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+lstdefinelanguage
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+State
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+morekeywords=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+Machine,State,Default,Entry,Idle,Exit,Transition,Action,Terminate
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+, sensitive=false, morecomment=[l]
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+//
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+lstset
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+% Configure listings defaults
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+ language=State, captionpos=b, tabsize=2, columns=flexible, basicstyle=
+\size small
+, numberstyle=
+\size tiny
+, index=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+Machine,State,Default,Entry,Idle,Exit,Transition,Action,Terminate
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+pagenumbering{roman}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \tableofcontents
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\newpage
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+lstlistoflistings
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\newpage
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+pagenumbering{arabic}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+
+Introduction
+\end_layout
+
+\begin_layout Section
+
+Overview
+\end_layout
+
+\begin_layout Standard
+
+here's an overview of the this document.
+\end_layout
+
+\begin_layout Section
+
+Motivation
+\end_layout
+
+\begin_layout Standard
+
+why create an HSM language and compiler?
+\end_layout
+
+\begin_layout Section
+
+Hierarchical State Machines
+\end_layout
+
+\begin_layout Standard
+
+brief description on how hsm's work 
+\begin_inset LatexCommand \cite{harel:sta}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Chapter
+
+Hierarchical State Machine Compiler
+\end_layout
+
+\begin_layout Section
+
+Overview
+\end_layout
+
+\begin_layout Standard
+
+
+\emph on
+hsmc
+\emph default
+ is a command line based compiler, named 
+\emph on
+hsmc.exe
+\emph default
+. It reads an HSM source input file, compiles it, and outputs two files (
+\emph on
+.cpp
+\emph default
+ and 
+\emph on
+.h
+\emph default
+). Each HSM source input file must define at least one valid Machine. Only one input file can be compiled at a time; however, that file may contain multiple Machine definitions (see 
+\begin_inset LatexCommand \ref{hsm:file}
+
+\end_inset
+
+).
+\end_layout
+
+\begin_layout Section
+
+Running the Compiler
+\end_layout
+
+\begin_layout Standard
+
+Invoking 
+\emph on
+hsmc
+\emph default
+ from the command line should print a usage statement:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ HSMC - Hierarchical State Machine Compiler
+\end_layout
+
+\begin_layout Standard
+
+Usage: hsmc [-hdpq] [-o prefix] sourcefile
+\end_layout
+
+\begin_layout Standard
+
+-h this help -d include debugging information -p actions declared as pure virtual -q quiet mode (only output errors) -o prefix specify prefix for output files [prefix.cpp,prefix.h] sourcefile HSM source file 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+To compile your HSM file using all defaults, you need only specify your source filename. For example:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ hsmc myfile.hsm 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+outputs two files upon successful compilation: 
+\emph on
+myfile.cpp
+\emph default
+ and 
+\emph on
+myfile.h
+\emph default
+.
+\end_layout
+
+\begin_layout Subsection
+
+Compiler Options
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsmc:options}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Description
+
+-h Prints the usage statement. This is equivalent to running 
+\emph on
+hsmc
+\emph default
+ with no parameters.
+\end_layout
+
+\begin_layout Description
+
+-d Include debugging information in the generated machine. This includes considerably more calls to HSMDebug. The debug strings are also available via HSMGetLastDebugMessage. The debug strings consist of descriptions of the current state, current transitions, or diagnostic messages.
+\end_layout
+
+\begin_layout Description
+
+-p Actions, by default, are declared virtual member methods and defined to be empty. This flag causes these methods to be declared pure virtual and remain undefined. 
+\begin_inset LatexCommand \label{opt:p}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Description
+
+-q By default, 
+\emph on
+hsmc
+\emph default
+ will output status messages during parsing, compilation, and code generation. Specifying this flag causes the output to be quieted such that only errors are emitted.
+\end_layout
+
+\begin_layout Description
+
+-o prefix Specifies the output filename prefix. By default this is set to the input filename after it's been stripped of its extension. So, for 
+\emph on
+input.hsm
+\emph default
+, the default output prefix is 
+\emph on
+input
+\emph default
+.
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+To generate 
+\emph on
+output.cpp
+\emph default
+ and 
+\emph on
+output.h
+\emph default
+ from the input file 
+\emph on
+input.hsm
+\emph default
+, you should specify the prefix explicitly: 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ hsmc -o output input.hsm 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+ The output prefix may include a prepended directory path as well.
+\end_layout
+
+\end_deeper
+\begin_layout Section
+
+Compiler Output
+\end_layout
+
+\begin_layout Standard
+
+The 
+\emph on
+hsmc
+\emph default
+ compiler outputs a C++ header file and a C++ source file.
+\end_layout
+
+\begin_layout Subsection
+
+Header File
+\end_layout
+
+\begin_layout Standard
+
+The header file declares one class for each machine defined in the HSM source input file.
+\end_layout
+
+\begin_layout Standard
+
+Each machine class enumerates events, enumerates states, declares several methods common to all machines, and declares all actions (virtual) which should be overriden before the machine is instanced.
+\end_layout
+
+\begin_layout Standard
+
+For example, a machine declaration of:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+ Machine(MyMachine,16) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+generates a class declaration of:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] class MyMachine 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ public: ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsubsection
+
+Event Enumeration
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsmc:events}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+A single 
+\emph on
+enum
+\emph default
+ entry is generated for each event identifier referenced in the HSM source input file. This enumeration is within the scope of the machine class.
+\end_layout
+
+\begin_layout Standard
+
+For example, the following HSM source fragment:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+ Action(MOUSEINPUT,BeepSound); Transition(KEYBOARDINPUT,NextState); Terminate(CRITICALEVENT); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+compiles to the following event enumeration:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] // events enum 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ MOUSEINPUT = 0, KEYBOARDINPUT, CRITICALEVENT
+\end_layout
+
+\begin_layout Standard
+
+HSMNUMEVENTS 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsubsection
+
+State Enumeration
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsmc:states}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+A single 
+\emph on
+enum
+\emph default
+ entry is generated for each state defined for a given machine in the HSM source input file. This enumeration is within the scope of the machine class.
+\end_layout
+
+\begin_layout Standard
+
+For example, the following HSM source fragment:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+ Machine(MyMachine,16) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ State(BootUp) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ State(AwaitInput) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ State(ProcessInput) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ... 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+compiles to the following state enumeration:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] // states enum 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ TOPSTATE = 0, BootUp, AwaitInput, ProcessInput,
+\end_layout
+
+\begin_layout Standard
+
+HSMNUMSTATES 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+The logical name of the root state is 
+\emph on
+TOPSTATE
+\emph default
+, as described in section 
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Subsubsection
+
+Common Method Declaration
+\end_layout
+
+\begin_layout Standard
+
+These method declarations are common to every machine.
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] public:
+\end_layout
+
+\begin_layout Standard
+
+int HSMGetCurrentState() const; bool HSMIsRunning() const;
+\end_layout
+
+\begin_layout Standard
+
+void HSMConstruct(); void HSMDestruct();
+\end_layout
+
+\begin_layout Standard
+
+bool HSMUpdate(float dt = 0.0f);
+\end_layout
+
+\begin_layout Standard
+
+void HSMTrigger(int event);
+\end_layout
+
+\begin_layout Standard
+
+char* HSMGetLastDebugMessage();
+\end_layout
+
+\begin_layout Standard
+
+protected:
+\end_layout
+
+\begin_layout Standard
+
+// debug hook (override this to trap debug messages) virtual void HSMDebug(char* msg); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Description
+
+int HSMGetCurrentState() const; 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+returns an integer, the enumeration id number of the current state as enumerated in the event numeration (
+\begin_inset LatexCommand \ref{hsmc:events}
+
+\end_inset
+
+). A negative integer (<0) is returned if the machine is not running.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+bool HSMIsRunning() const; 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+returns 
+\emph on
+true
+\emph default
+ if the machine has been constructed and is presently in a valid state. returns 
+\emph on
+false
+\emph default
+ if 
+\emph on
+TOPSTATE
+\emph default
+ has exited, or the machine has not been constucted, or the machine has been destroyed.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+void HSMConstruct(); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+Called on a non-running machine to initialize the HSM, and cause a transition into 
+\emph on
+TOPSTATE
+\emph default
+. This does nothing if the machine is already running.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+void HSMDestruct(); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+Called on a running machine to cause an immediate transition to 
+\emph on
+TOPSTATE
+\emph default
+, followed by the exit of 
+\emph on
+TOPSTATE
+\emph default
+. This does nothing if the machine is not running.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+bool HSMUpdate(float dt = 0.0f); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+Updates any timers according to 
+\emph on
+dt
+\emph default
+, adds an 
+\emph on
+IDLE
+\emph default
+ event to the end of the event queue, and then processes all events up to that 
+\emph on
+IDLE
+\emph default
+ event.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+void HSMTrigger(int event); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+Adds event to the event queue. If event is invalid, it's ignored. The event queue is processed on the next call to HSMUpdate().
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+char* HSMGetLastDebugMessage(); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+Returns a private character pointer to the last debug message. This debug string is a textual description of the last operation the machine performed, such as a transition, entry into a state, or idling in a state.
+\end_layout
+
+\begin_layout Standard
+
+See 
+\begin_inset LatexCommand \ref{hsmc:options}
+
+\end_inset
+
+ for information on how to enable debugging information.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+virtual void HSMDebug(char* msg); 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+This function is empty by default and has no effect. It is called throughout the machine internals with debug messages; therefore, if you prefer immediate access to these messages, you should override this function with your own. This allows you to trap debug messages as they happen.
+\end_layout
+
+\begin_layout Standard
+
+These debug messages are the same as are accessible via HSMGetLastDebugMessage().
+\end_layout
+
+\begin_layout Standard
+
+See 
+\begin_inset LatexCommand \ref{hsmc:options}
+
+\end_inset
+
+ for information on how to enable debugging information.
+\end_layout
+
+\end_deeper
+\begin_layout Subsubsection
+
+Action Method Declarations
+\end_layout
+
+\begin_layout Standard
+
+Action methods are user defined functions which need to be called by the HSM. These actions are defined by Entry, Idle, Exit, and Action statements (see 
+\begin_inset LatexCommand \ref{hsm:actions}
+
+\end_inset
+
+).
+\end_layout
+
+\begin_layout Standard
+
+For example, the source input fragment:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+ Entry(MyEntryFunc); Idle(MyIdleFunc); Exit(MyExitFunc); Action(SomeEvent, MySomeEventFunc); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+is compiled to:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] protected:
+\end_layout
+
+\begin_layout Standard
+
+// actions virtual void MyEntryFunc(); virtual void MyIdleFunc(); virtual void MyExitFunc(); virtual void MySomeEventFunc(); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+Note that if the pure virtual option is specified (see 
+\begin_inset LatexCommand \ref{hsmc:options}
+
+\end_inset
+
+) then these methods would instead be declared as follows:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C++] protected:
+\end_layout
+
+\begin_layout Standard
+
+// actions virtual void MyEntryFunc() = 0; virtual void MyIdleFunc() = 0; virtual void MyExitFunc() = 0; virtual void MySomeEventFunc() = 0; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Source File
+\end_layout
+
+\begin_layout Standard
+
+The source file contains all of the inner workings of the HSM. In general, you need know nothing about this file to use 
+\emph on
+hsmc
+\emph default
+. You may wish to browse through it in case you're curious about how the machines are implemented or if you're debugging your machine behavior.
+\end_layout
+
+\begin_layout Section
+
+Compiler Errors
+\end_layout
+
+\begin_layout Standard
+
+You may encounter one or more of the following diagnostic error messages while compiling with 
+\emph on
+hsmc
+\emph default
+. No output files are generated in the case of any error.
+\end_layout
+
+\begin_layout Description
+
+source line number: Invalid event queue size for Machine 'machinename' 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+The parser was not able to determine a valid queue size in the declaration of 'machinename'. See 
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+source line number: State 'statename' was previously defined 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+A state named 'statename' was already found in this machine. See 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+source line number: multiple Default states defined in State 'statename' 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+More than one state defined with the same name, 'statename'. See 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+source line number: multiple Transition's on 'eventname' defined in 'statename' 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+More than one transition defined for a single event (i.e. ambiguous transition). See 
+\begin_inset LatexCommand \ref{hsm:transitions}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+source line number: multiple Terminate's on 'eventname' defined in 'statename' 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+More than one terminate defined for a single event. See 
+\begin_inset LatexCommand \ref{hsm:termination}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+ERROR: parser failed 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+The parser discovered an unrecoverable syntax error. See 
+\begin_inset LatexCommand \ref{hsm:lexical}
+
+\end_inset
+
+.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+ERROR: unable to open 'filename' 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+The compiler was unable to open an input file for reading or an output file for writing. Make sure the input file exists and is readable and that the output file either doesn't exist, or is writable.
+\end_layout
+
+\end_deeper
+\begin_layout Description
+
+ERROR: compilation aborted due to errors 
+\end_layout
+
+\begin_deeper
+\begin_layout Standard
+
+The compiler aborted compilation because of errors. These are most likely semantic errors and will probably have been printed in addition to this terminal diagnostic.
+\end_layout
+
+\end_deeper
+\begin_layout Chapter
+
+Implementing a Machine
+\end_layout
+
+\begin_layout Standard
+
+Step by step instructions on creating a machine, compiling it, inheriting it, and running it.
+\end_layout
+
+\begin_layout Section
+
+Design
+\end_layout
+
+\begin_layout Section
+
+Compile
+\end_layout
+
+\begin_layout Section
+
+Implement
+\end_layout
+
+\begin_layout Chapter
+
+Examples
+\end_layout
+
+\begin_layout Section
+
+Traffic Signal
+\end_layout
+
+\begin_layout Section
+
+Soda Machine
+\end_layout
+
+\begin_layout Standard
+\start_of_appendix
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%dummy comment inserted by tex2lyx to ensure that this paragraph is not empty
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+
+Frequently Asked Questions
+\end_layout
+
+\begin_layout Section
+
+FAQ Category
+\end_layout
+
+\begin_layout Subsection
+
+Question number 1?
+\end_layout
+
+\begin_layout Standard
+
+Answer number 1.
+\end_layout
+
+\begin_layout Subsection
+
+Question number 2?
+\end_layout
+
+\begin_layout Standard
+
+Answer number 2.
+\end_layout
+
+\begin_layout Chapter
+
+HSM Language Reference
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ // * A state may contain other states // * A state may contain Default, Entry, Idle, Exit, Transition, Action, and Terminate // * A single Default is allowed per state // * There may only be one transition per event // * Multiple actions are allowed per event // * Multiple Entry, Idle, and Exit function calls are allowed // * Terminate() causes all states to exit, including the root state // * nested states must be represented hierarchically in input file via 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{}
+\end_layout
+
+\end_inset
+
+ pairs // * no empty states 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+
+General
+\end_layout
+
+\begin_layout Standard
+
+The HSM language attempts to embody the most used, most important features of hierarchical state machines (as described by 
+\begin_inset LatexCommand \cite{harel:sta}
+
+\end_inset
+
+). Some features from Harel's statecharts are missing from the HSM language, such as historic transitions.
+\end_layout
+
+\begin_layout Standard
+
+The language is designed to be easy to edit and manipulate, while remaining syntactically similar to C++.
+\end_layout
+
+\begin_layout Section
+
+Lexical Elements
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:lexical}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Character Set
+\end_layout
+
+\begin_layout Standard
+
+The HSM source character set consists of 74 characters: the space character, the control characters representing the horizontal tab, and new-line, plus the following 71 graphical characters:
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z 0 1 2 3 4 5 6 7 8 9 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ( ) , ; .  / 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Case Sensitivity
+\end_layout
+
+\begin_layout Standard
+
+Keywords are not case sensitive. Therefore, 
+\emph on
+state
+\emph default
+, 
+\emph on
+STATE
+\emph default
+, 
+\emph on
+State
+\emph default
+, and 
+\emph on
+StAtE
+\emph default
+ are all equivalent.
+\end_layout
+
+\begin_layout Standard
+
+However, identifiers are case sensitive. For example, the HSM in listing 
+\begin_inset LatexCommand \ref{list:casesensitivity}
+
+\end_inset
+
+ defines two states, named 
+\emph on
+S
+\emph default
+ and 
+\emph on
+s
+\emph default
+; as well as two events, named 
+\emph on
+E
+\emph default
+ and 
+\emph on
+e
+\emph default
+.
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[caption=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+Case Sensitivity on Identifiers
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,label=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+list:casesensitivity
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,float,frame=lines,numbers=left] Machine(m,16) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ // s is a default transition Default(s);
+\end_layout
+
+\begin_layout Standard
+
+// define state 's' State(s) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ // on event 'E', transition to state 'S' Transition(E,S); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+// define state 'S' State(S) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ // on event 'e', transition to state 's' Transition(e,s); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Line Format
+\end_layout
+
+\begin_layout Standard
+
+Whitespace is completely ignored; therefore, lines do not require separation by new-line characters, nor any special formatting with space characters.
+\end_layout
+
+\begin_layout Standard
+
+All keywords other than 
+\emph on
+Machine
+\emph default
+ and 
+\emph on
+State
+\emph default
+ require a semicolon.
+\end_layout
+
+\begin_layout Subsection
+
+Source Layout
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:file}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+Each single HSM source input file must define at least one syntactically correct Machine (see 
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+). There is no limit to the number of machines allowed in a single input file.
+\end_layout
+
+\begin_layout Subsection
+
+Keywords
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:keywords}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+Exactly nine keywords are defined. They are listed in listing 
+\begin_inset LatexCommand \ref{list:keywords}
+
+\end_inset
+
+ and described in detail in sections 
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+, 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+, 
+\begin_inset LatexCommand \ref{hsm:actions}
+
+\end_inset
+
+, and 
+\begin_inset LatexCommand \ref{hsm:transitions}
+
+\end_inset
+
+,
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[caption=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+Keywords
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,label=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+list:keywords
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,float,frame=lines] Machine State Default Entry Idle Exit Transition Action Terminate 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Identifiers
+\end_layout
+
+\begin_layout Standard
+
+Identifiers are used to name Machines, States, and Events. The first character of an identifier must be one of the 53 graphical characters in the set: 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z  
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+ and any characters after the first may be any of the 63 graphical characters in the set: 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{verbatim}
+\end_layout
+
+\end_inset
+
+ A B C D E F G H I J K L M N O P Q R S T U V W X Y Z a b c d e f g h i j k l m n o p q r s t u v w x y z  0 1 2 3 4 5 6 7 8 9 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{verbatim}
+\end_layout
+
+\end_inset
+
+ Identifiers longer than 256 characters are not permitted.
+\end_layout
+
+\begin_layout Standard
+
+Examples of valid and invalid identifiers may be found in listing 
+\begin_inset LatexCommand \ref{list:identifiers}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[caption=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+Identifier Examples
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,label=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+list:identifiers
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,float,frame=lines] IDENTIFIER Identifier identifier iDeNtifier identifier 000000 id0 id100 0id // invalid 100id // invalid 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Numeric Literals
+\end_layout
+
+\begin_layout Standard
+
+Numeric literals are used in the HSM language to specify event queue size (
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+) as well as time values used in timed actions (
+\begin_inset LatexCommand \ref{hsm:actionstimed}
+
+\end_inset
+
+) and timed transitions (
+\begin_inset LatexCommand \ref{hsm:transitionstimed}
+
+\end_inset
+
+). They may be whole integers or floating point numbers, and must be positive. They must be composed of the digits 0 through 9, and may include a single decimal point denoted by the period character.
+\end_layout
+
+\begin_layout Subsection
+
+Reserved Words
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:reserved}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+Ten reserved words are defined. They include the word 
+\emph on
+TOPSTATE
+\emph default
+ plus the nine keywords defined in 
+\begin_inset LatexCommand \ref{hsm:keywords}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Standard
+
+These words are all reserved and cannot be used as identifiers.
+\end_layout
+
+\begin_layout Subsection
+
+Comments
+\end_layout
+
+\begin_layout Standard
+
+The characters 
+\emph on
+//
+\emph default
+ start a comment, which terminates with the next new-line character.
+\end_layout
+
+\begin_layout Section
+
+Scope
+\end_layout
+
+\begin_layout Standard
+
+Scope is controlled with the curly brace characters, 
+\emph on
+{
+\emph default
+ and 
+\emph on
+}
+\emph default
+. These apply to Machine and State definitions (see 
+\begin_inset LatexCommand \ref{hsm:machines}
+
+\end_inset
+
+ and 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+).
+\end_layout
+
+\begin_layout Standard
+
+This scoping mechanism is what allows for the nesting of states, making these state machines hierarchical 
+\begin_inset LatexCommand \cite{harel:sta}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Section
+
+Machines
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:machines}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Description
+
+Machine(name,queuesize) { ... } 
+\emph on
+name
+\emph default
+ is the unique identifier for this machine; 
+\emph on
+queuesize
+\emph default
+ is the static size of the event queue and must be a whole integer greater than 0; 
+\emph on
+...
+\emph default
+ is the machine definition which must qualify as a valid state definition (see 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+). 
+\end_layout
+
+\begin_layout Standard
+
+Machine is declaration and definition of the root state of a Hierarchical State Machine.
+\end_layout
+
+\begin_layout Standard
+
+Machine is nearly synonymous with State, with the addition of requiring an event queue size specification. Therefore, everything valid in the definition of a State is also valid in the definition of a Machine. As such, a Machine definition may contain zero or more substates; however, it may not be empty. See 
+\begin_inset LatexCommand \ref{hsm:states}
+
+\end_inset
+
+.
+\end_layout
+
+\begin_layout Standard
+
+The state defined by Machine is the root state in the state hierarchy. It is identified by the reserved identifier 
+\emph on
+TOPSTATE
+\emph default
+ (see 
+\begin_inset LatexCommand \ref{hsm:reserved}
+
+\end_inset
+
+), a convention set forth in 
+\begin_inset LatexCommand \cite{samek:psc}
+
+\end_inset
+
+. This automatic identification is necessary to allow explicit transitions to the root state. It is the first state entered upon machine construction.
+\end_layout
+
+\begin_layout Section
+
+States
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:states}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+May contain any number of substates.
+\end_layout
+
+\begin_layout Section
+
+Actions
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:actions}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Normal
+\end_layout
+
+\begin_layout Subsection
+
+Timed
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:actionstimed}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Special
+\end_layout
+
+\begin_layout Section
+
+Transitions
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:transitions}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Normal
+\end_layout
+
+\begin_layout Subsection
+
+Timed
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:transitionstimed}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Default
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:default}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+
+Termination
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset LatexCommand \label{hsm:termination}
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Chapter
+
+HSMC lex and yacc Source
+\end_layout
+
+\begin_layout Section
+
+lex, lexical scanner
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C,caption=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+hsmc.l (lex source)
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,numbers=left,columns=fixed] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%{
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+#include <stdio.h> #include <stdlib.h> #include <string.h>
+\end_layout
+
+\begin_layout Standard
+
+#include "hsm-parser.tab.h"
+\end_layout
+
+\begin_layout Standard
+
+int lineno = 1;
+\end_layout
+
+\begin_layout Standard
+
+void yyerror(char* s);
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%}
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%%
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+/* whitespace */
+\end_layout
+
+\begin_layout Standard
+
+[ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+t{]}
+\end_layout
+
+\end_inset
+
++ ; /* skip whitespace */
+\end_layout
+
+\begin_layout Standard
+
+/* comments */
+\end_layout
+
+\begin_layout Standard
+
+"//".* ; /* skip C++ comments */
+\end_layout
+
+\begin_layout Standard
+
+/* punctuation */
+\end_layout
+
+\begin_layout Standard
+
+"," 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return ','; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ";" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return ';'; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ "
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+'; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ "
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+'; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ "(" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return '('; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ")" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return ')'; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+/* keywords */
+\end_layout
+
+\begin_layout Standard
+
+[Mm][Aa][Cc][Hh][Ii][Nn][Ee] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return MACHINE; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Ss][Tt][Aa][Tt][Ee] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return STATE; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Dd][Ee][Ff][Aa][Uu][Ll][Tt] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return DEFAULT; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Ee][Nn][Tt][Rr][Yy] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return ENTRY; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Ii][Dd][Ll][Ee] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return IDLE; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Ee][Xx][Ii][Tt] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return EXIT; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Tt][Rr][Aa][Nn][Ss][Ii][Tt][Ii][Oo][Nn] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return TRANSITION; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Aa][Cc][Tt][Ii][Oo][Nn] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return ACTION; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ [Tt][Ee][Rr][Mm][Ii][Nn][Aa][Tt][Ee] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return TERMINATE; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+/* identifiers */
+\end_layout
+
+\begin_layout Standard
+
+[a-zA-Z][a-zA-Z0-9]* 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ if ( strlen(yytext) > 256 ) printf( "
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%d: truncating symbol '%s' to 256 characters
+\backslash
+n",
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+ lineno,yytext); strncpy(yylval.string,yytext,256); return IDENTIFIER; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+/* constants */
+\end_layout
+
+\begin_layout Standard
+
+[0-9]+\i \.{?}
+[0-9]* 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ yylval.constant = (float)atof(yytext); return CONSTANT; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+/* newlines, etc. */
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+n
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ lineno++; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ . ; /* ignore */
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%%
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+int yywrap() 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ return 1; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+void yyerror(char* s) 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ printf("
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+n
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%d: %s at %s
+\backslash
+n", lineno, s, yytext);
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Section
+
+yacc, parser
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+begin{lstlisting}
+\end_layout
+
+\end_inset
+
+[language=C,deleteemph=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+default
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,caption=
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+hsmc.y (yacc source)
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+,numbers=left,columns=fixed] 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%{
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+extern int yylex(); extern void yyerror(char* s);
+\end_layout
+
+\begin_layout Standard
+
+#include "main.h" 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%}
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%union
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ char string[258]; float constant; 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token MACHINE
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token STATE
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token DEFAULT
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token ENTRY
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token IDLE
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token EXIT
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token TRANSITION
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token ACTION
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token TERMINATE
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token <string> IDENTIFIER
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%token <constant> CONSTANT
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+%%
+\end_layout
+
+\begin_layout Standard
+
+
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+machines: machine | machines machine ;
+\end_layout
+
+\begin_layout Standard
+
+machine: machinedecl '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+' stateitems '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseEndMachine(); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+stateitems: stateitem | stateitems stateitem ;
+\end_layout
+
+\begin_layout Standard
+
+stateitem: state | statement ;
+\end_layout
+
+\begin_layout Standard
+
+state: statedecl '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+' stateitems '
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseEndState(); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+statement: default ';' | entry ';' | idle ';' | exit ';' | transition ';' | action ';' | timetransition ';' | timeaction ';' | terminate ';' ;
+\end_layout
+
+\begin_layout Standard
+
+machinedecl: MACHINE '(' IDENTIFIER ',' CONSTANT ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseBeginMachine(
+\begin_inset Formula $3,(int)$
+\end_inset
+
+5); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+statedecl: STATE '(' IDENTIFIER ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseBeginState(
+\begin_inset Formula $3);
+            unexpected '}' in math
+
+          ;
+         
+default: DEFAULT '(' IDENTIFIER ')'
+         {
+           parseDefault(}3);
+         unexpected '}' in math
+
+       ;
+        
+entry: ENTRY '(' IDENTIFIER ')'  
+       { 
+         parseEntry(}3);
+       unexpected '}' in math
+
+     ;
+        
+idle: IDLE '(' IDENTIFIER ')'
+      {
+        parseIdle(}3);
+      unexpected '}' in math
+
+    ;
+        
+exit: EXIT '(' IDENTIFIER ')'
+      {
+        parseExit(}3);
+      unexpected '}' in math
+
+    ;
+        
+transition: TRANSITION '(' IDENTIFIER ',' IDENTIFIER ')'
+            { 
+              parseTransition(}3,$
+\end_inset
+
+5); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+action: ACTION '(' IDENTIFIER ',' IDENTIFIER ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseAction(
+\begin_inset Formula $3,$
+\end_inset
+
+5); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+timetransition: TRANSITION '(' CONSTANT ',' IDENTIFIER ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseTimeTransition(
+\begin_inset Formula $3,$
+\end_inset
+
+5); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+timeaction: ACTION '(' CONSTANT ',' IDENTIFIER ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseTimeAction(
+\begin_inset Formula $3,$
+\end_inset
+
+5); 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+ ;
+\end_layout
+
+\begin_layout Standard
+
+terminate: TERMINATE '(' IDENTIFIER ')' 
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+{
+\end_layout
+
+\end_inset
+
+ parseTerminate(
+\begin_inset Formula $3);
+           unexpected '}' in math
+
+         ;
+{lstlisting}
+
+
+
+
+\newpage
+\addcontentsline{toc}{chapter}{Glossary}
+\chapter*{Glossary}
+\begin{description}
+  \item[blah] A blah is a blah blah blah!\index{blah}
+\end{description}
+
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Bibliography}
+\bibliographystyle{alpha}
+\bibliography{doc}
+
+\cleardoublepage
+\addcontentsline{toc}{chapter}{Index}
+\printindex
+
+{document}
+
+
+
+$
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+}
+\end_layout
+
+\end_inset
+
+
+\begin_inset ERT
+status collapsed
+
+\begin_layout Standard
+
+
+\backslash
+end{lstlisting}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\end_body
+\end_document
