@@ -1,0 +1,17 @@
+error: multiple `default` declarations in state `Parent`
+  --> tests/ui/t9_7_duplicate_default.rs:14:9
+   |
+14 |         default(A);
+   |         ^^^^^^^
+
+error[E0405]: cannot find trait `MActions` in this scope
+  --> tests/ui/t9_7_duplicate_default.rs:22:6
+   |
+22 | impl MActions for MActionContext<'_> {
+   |      ^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find type `MActionContext` in this scope
+  --> tests/ui/t9_7_duplicate_default.rs:22:19
+   |
+22 | impl MActions for MActionContext<'_> {
+   |                   ^^^^^^^^^^^^^^ not found in this scope

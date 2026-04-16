@@ -1,0 +1,18 @@
+[package]
+name = "hsmc-macros"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Procedural macro implementation for the hsmc crate."
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full", "extra-traits"] }
+quote = "1"
+proc-macro2 = "1"
+
+[dev-dependencies]
+trybuild = "1"
+hsmc = { path = "../hsmc" }

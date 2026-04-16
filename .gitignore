@@ -1,0 +1,10 @@
+# Rust build artifacts
+/target
+**/target/
+
+# Local Claude Code config (per-host overrides)
+.claude/settings.local.json
+
+# OS / editor
+.DS_Store
+*.swp
