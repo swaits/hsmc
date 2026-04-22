@@ -18,3 +18,20 @@ impl core::fmt::Display for HsmcError {
 
 #[cfg(feature = "tokio")]
 impl std::error::Error for HsmcError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    extern crate alloc;
+    use alloc::format;
+
+    // Kills: <impl Display for HsmcError>::fmt -> Ok(Default::default())
+    #[test]
+    fn display_messages_are_specific() {
+        assert_eq!(format!("{}", HsmcError::QueueFull), "event queue is full");
+        assert_eq!(
+            format!("{}", HsmcError::AlreadyTerminated),
+            "machine has already terminated"
+        );
+    }
+}

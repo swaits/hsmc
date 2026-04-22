@@ -1819,13 +1819,45 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 __dispatch(&mut actx, aid, event).await;
             }
 
+            // §2.6: classify transitions by the relationship between the
+            // innermost active state `I` and the target `T`:
+            //   - Up-transition: T is already active (T is a strict ancestor
+            //     of I). Unwind the subtree strictly below T; do NOT exit or
+            //     re-enter T; do NOT descend into defaults. You cannot enter
+            //     a state you never left.
+            //   - Self-transition (T == I): external semantics — exit T and
+            //     re-enter it, then descend into defaults if T has children.
+            //   - Lateral: standard LCA semantics.
+            fn is_up_transition(current: Option<u16>, target: u16) -> bool {
+                let Some(mut node) = current else { return false; };
+                if node == target { return false; }
+                while let Some(p) = __PARENT[node as usize] {
+                    if p == target { return true; }
+                    node = p;
+                }
+                false
+            }
+
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
-            fn transition(&mut self, source_matched_state: u16, target: u16) {
-                let mut lca = Self::lca(source_matched_state, target);
-                if let Some(l) = lca {
-                    if l == target {
-                        lca = __PARENT[l as usize];
+            fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                if Self::is_up_transition(self.current, target) {
+                    if let Some(mut cur) = self.current {
+                        while cur != target {
+                            self.exit_state(cur);
+                            match __PARENT[cur as usize] {
+                                Some(p) => cur = p,
+                                None => break,
+                            }
+                        }
                     }
+                    self.current = Some(target);
+                    return;
+                }
+
+                let mut lca = Self::lca(self.current.unwrap_or(target), target);
+                if self.current == Some(target) {
+                    // Self-transition: bump LCA so target is exited and re-entered.
+                    lca = __PARENT[target as usize];
                 }
                 if let Some(mut cur) = self.current {
                     loop {
@@ -1853,12 +1885,24 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
-            async fn transition(&mut self, source_matched_state: u16, target: u16) {
-                let mut lca = Self::lca(source_matched_state, target);
-                if let Some(l) = lca {
-                    if l == target {
-                        lca = __PARENT[l as usize];
+            async fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                if Self::is_up_transition(self.current, target) {
+                    if let Some(mut cur) = self.current {
+                        while cur != target {
+                            self.exit_state(cur).await;
+                            match __PARENT[cur as usize] {
+                                Some(p) => cur = p,
+                                None => break,
+                            }
+                        }
                     }
+                    self.current = Some(target);
+                    return;
+                }
+
+                let mut lca = Self::lca(self.current.unwrap_or(target), target);
+                if self.current == Some(target) {
+                    lca = __PARENT[target as usize];
                 }
                 if let Some(mut cur) = self.current {
                     loop {

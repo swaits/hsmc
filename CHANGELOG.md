@@ -4,6 +4,26 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.2.0 — 2026-04-22
+
+### Fixed — behavior-visible (breaking)
+
+- **Up-transitions no longer exit and re-enter the target ancestor.**
+  A transition whose target is already active (i.e., the target is on
+  the path from root to the innermost active state, and the target is
+  not itself the innermost) now unwinds only the subtree strictly
+  below the target. The target's `exit:` / `entry:` actions do NOT
+  fire, and its `default(...)` does NOT re-descend. You cannot
+  re-enter a state you never left. The old semantics (exit target,
+  re-enter, re-descend to default) was incorrect and could produce
+  infinite re-entry when a child transitioned to its own parent.
+  See spec §2.6, §T2.8, §T2.8b, §T2.8c.
+- Self-transitions (`target == innermost`) are unchanged: the target
+  is still exited and re-entered, timers still restart.
+- Lateral transitions (target not on the active path) are unchanged.
+- `current_state()` may now return a composite state when it became
+  innermost via an up-transition.
+
 ## 0.1.0 — 2026-04-22
 
 Initial release.

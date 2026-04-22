@@ -717,17 +717,150 @@ mod t2_8 {
 
     #[test]
     fn t2_8_transition_to_ancestor() {
+        // §2.6: up-transition. Target A is already active; we unwind only
+        // the subtree strictly below A. A itself is not exited or
+        // re-entered, and its default(B) does not re-fire.
         let mut m = T28::new(TestCtx::default());
         m.step(Duration::ZERO);
         assert_eq!(m.context().logs(), ["a_entry", "b_entry"]);
         m.context_mut().log.clear();
         m.send(Ev::Up).unwrap();
         m.step(Duration::ZERO);
-        assert_eq!(m.current_state(), T28State::B);
-        assert_eq!(
-            m.context().logs(),
-            ["b_exit", "a_exit", "a_entry", "b_entry"]
-        );
+        assert_eq!(m.current_state(), T28State::A);
+        assert_eq!(m.context().logs(), ["b_exit"]);
+    }
+}
+
+// ---- T2.8b: up-transition across multiple levels ----
+mod t2_8b {
+    use super::*;
+    #[derive(Debug, Clone)]
+    pub enum Ev {
+        Up,
+    }
+
+    statechart! {
+    T28b {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                entry: a_entry;
+                exit: a_exit;
+                state B {
+                    default(C);
+                    entry: b_entry;
+                    exit: b_exit;
+                    state C {
+                        entry: c_entry;
+                        exit: c_exit;
+                        on(Up) => A;
+                    }
+                }
+            }
+        }
+        }
+
+    impl T28bActions for T28bActionContext<'_> {
+        fn a_entry(&mut self) {
+            self.log.push("a_entry".into());
+        }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
+        fn c_exit(&mut self) {
+            self.log.push("c_exit".into());
+        }
+    }
+
+    #[test]
+    fn t2_8b_up_transition_across_levels() {
+        let mut m = T28b::new(TestCtx::default());
+        m.step(Duration::ZERO);
+        assert_eq!(m.context().logs(), ["a_entry", "b_entry", "c_entry"]);
+        m.context_mut().log.clear();
+        m.send(Ev::Up).unwrap();
+        m.step(Duration::ZERO);
+        assert_eq!(m.current_state(), T28bState::A);
+        assert_eq!(m.context().logs(), ["c_exit", "b_exit"]);
+    }
+}
+
+// ---- T2.8c: handler on ancestor, target is a mid-ancestor ----
+mod t2_8c {
+    use super::*;
+    #[derive(Debug, Clone)]
+    pub enum Ev {
+        Up,
+    }
+
+    statechart! {
+    T28c {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                entry: a_entry;
+                exit: a_exit;
+                on(Up) => B;   // handler on A, target B
+                state B {
+                    default(C);
+                    entry: b_entry;
+                    exit: b_exit;
+                    state C {
+                        entry: c_entry;
+                        exit: c_exit;
+                    }
+                }
+            }
+        }
+        }
+
+    impl T28cActions for T28cActionContext<'_> {
+        fn a_entry(&mut self) {
+            self.log.push("a_entry".into());
+        }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
+        fn c_exit(&mut self) {
+            self.log.push("c_exit".into());
+        }
+    }
+
+    #[test]
+    fn t2_8c_up_transition_classified_by_innermost_not_handler() {
+        // Handler bubbles from C to A. Target B is on the active path and
+        // is not the innermost, so this is an up-transition — even though
+        // the handler was found on A (not on C or B).
+        let mut m = T28c::new(TestCtx::default());
+        m.step(Duration::ZERO);
+        assert_eq!(m.context().logs(), ["a_entry", "b_entry", "c_entry"]);
+        m.context_mut().log.clear();
+        m.send(Ev::Up).unwrap();
+        m.step(Duration::ZERO);
+        assert_eq!(m.current_state(), T28cState::B);
+        assert_eq!(m.context().logs(), ["c_exit"]);
     }
 }
 

@@ -1,0 +1,8 @@
+# Kill any single test that runs longer than 15s. The machine tests use
+# `run()` loops that rely on the timer subsystem progressing — when a
+# mutation breaks timer semantics a test can spin forever. Without a
+# terminate-after budget the whole `cargo mutants` run is scored TIMEOUT
+# instead of CAUGHT even when unit tests have already flagged the bug.
+[profile.default.slow-timeout]
+period = "5s"
+terminate-after = 3

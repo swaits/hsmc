@@ -271,3 +271,285 @@ pub mod __private {
         }
     }
 }
+
+#[cfg(test)]
+mod private_internals {
+    //! Direct unit tests on `__private` internals. The behavior suite covers
+    //! these through generated code, but mutation testing needs tight, fast
+    //! tests that pin the exact semantics each helper is supposed to uphold.
+    use super::__private::*;
+    use crate::HsmcError;
+    use core::time::Duration;
+
+    // ───── EventQueue ─────
+
+    // Kills: push -> Ok(()) (must actually enqueue, not swallow)
+    #[test]
+    fn event_queue_push_and_pop() {
+        let mut q: EventQueue<u32, 2> = EventQueue::new();
+        assert!(q.push(10).is_ok());
+        assert!(q.push(20).is_ok());
+        assert_eq!(q.pop(), Some(10));
+        assert_eq!(q.pop(), Some(20));
+        assert_eq!(q.pop(), None);
+    }
+
+    // Kills: push -> Ok(()) for the overflow branch (QueueFull must be surfaced)
+    #[test]
+    fn event_queue_push_overflow_returns_queue_full() {
+        let mut q: EventQueue<u32, 2> = EventQueue::new();
+        assert!(q.push(1).is_ok());
+        assert!(q.push(2).is_ok());
+        assert_eq!(q.push(3), Err(HsmcError::QueueFull));
+    }
+
+    // Kills: pop -> None (must drain in FIFO order)
+    #[test]
+    fn event_queue_pop_is_fifo() {
+        let mut q: EventQueue<u32, 4> = EventQueue::new();
+        q.push(1).unwrap();
+        q.push(2).unwrap();
+        q.push(3).unwrap();
+        assert_eq!(q.pop(), Some(1));
+        assert_eq!(q.pop(), Some(2));
+        assert_eq!(q.pop(), Some(3));
+    }
+
+    // Kills: is_empty -> true | is_empty -> false
+    #[test]
+    fn event_queue_is_empty_tracks_contents() {
+        let mut q: EventQueue<u32, 2> = EventQueue::new();
+        assert!(q.is_empty()); // kills is_empty -> false
+        q.push(1).unwrap();
+        assert!(!q.is_empty()); // kills is_empty -> true
+        q.pop();
+        assert!(q.is_empty());
+    }
+
+    // Kills: clear with ()
+    #[test]
+    fn event_queue_clear_drains() {
+        let mut q: EventQueue<u32, 4> = EventQueue::new();
+        q.push(1).unwrap();
+        q.push(2).unwrap();
+        q.push(3).unwrap();
+        q.clear();
+        assert!(q.is_empty());
+        assert_eq!(q.pop(), None);
+    }
+
+    // ───── QueuePush for heapless::Deque ─────
+
+    // Kills: <impl QueuePush for heapless::Deque>::push -> Ok(())
+    #[test]
+    fn deque_queue_push_surfaces_overflow() {
+        let mut d: heapless::Deque<u32, 2> = heapless::Deque::new();
+        let q: &mut dyn QueuePush<u32> = &mut d;
+        assert!(q.push(1).is_ok());
+        assert!(q.push(2).is_ok());
+        assert_eq!(q.push(3), Err(HsmcError::QueueFull));
+    }
+
+    // ───── TimerTable::start ─────
+
+    // Kills L173 && -> ||, L173 first == -> !=, L173 second == -> !=
+    //
+    // Three timers chosen so each mutation lands on a different outcome:
+    //   (1,10,100) (1,20,200) (2,10,300); then re-start (1,10,500) to reset.
+    // Normal: three distinct entries; (1,10) shows 500ns.
+    //   && -> ||: re-start (1,10,500) matches (1,20) on state-1, rewrites it.
+    //   state == -> !=: the second call (1,20) overwrites the first (1,10).
+    //   trigger == -> !=: the re-start (1,10,500) doesn't find (1,10); pushes a 4th.
+    #[test]
+    fn timer_start_matches_state_and_trigger_exactly() {
+        let mut t: TimerTable<8> = TimerTable::new();
+        t.start(1, 10, Duration::from_nanos(100));
+        t.start(1, 20, Duration::from_nanos(200));
+        t.start(2, 10, Duration::from_nanos(300));
+        assert_eq!(t.entries.len(), 3);
+
+        t.start(1, 10, Duration::from_nanos(500));
+        assert_eq!(t.entries.len(), 3); // reset, not appended
+
+        let find = |s, trg| {
+            t.entries
+                .iter()
+                .find(|e| e.state == s && e.trigger == trg)
+                .map(|e| e.remaining_ns)
+        };
+        assert_eq!(find(1, 10), Some(500));
+        assert_eq!(find(1, 20), Some(200));
+        assert_eq!(find(2, 10), Some(300));
+    }
+
+    // Kills: start with () (must actually push an entry)
+    #[test]
+    fn timer_start_pushes_new_entry() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(7, 42, Duration::from_nanos(999));
+        assert_eq!(t.entries.len(), 1);
+        assert_eq!(t.entries[0].state, 7);
+        assert_eq!(t.entries[0].trigger, 42);
+        assert_eq!(t.entries[0].remaining_ns, 999);
+    }
+
+    // ───── TimerTable::cancel_state ─────
+
+    // Kills: cancel_state with (), != -> ==
+    //
+    // Start three timers, cancel state=1; expect only state=2 survives.
+    //   cancel_state with (): all three survive.
+    //   != -> ==: retains only state=1 entries, drops state=2. Inverted.
+    #[test]
+    fn timer_cancel_state_removes_matching_only() {
+        let mut t: TimerTable<8> = TimerTable::new();
+        t.start(1, 10, Duration::from_nanos(100));
+        t.start(1, 20, Duration::from_nanos(200));
+        t.start(2, 10, Duration::from_nanos(300));
+        t.cancel_state(1);
+        assert_eq!(t.entries.len(), 1);
+        assert_eq!(t.entries[0].state, 2);
+        assert_eq!(t.entries[0].trigger, 10);
+    }
+
+    // ───── TimerTable::cancel_one ─────
+
+    // Kills: cancel_one with (), delete !, && -> ||, both == -> !=
+    //
+    // Start (1,10), (1,20), (2,10). Cancel (1,10). Expect {(1,20),(2,10)}.
+    //   body (): nothing removed.
+    //   delete !: keeps only (1,10).
+    //   && -> ||: retains `!(state==s || trig==t)`, drops everything.
+    //   state == -> !=: (1,10) survives, (1,20) dropped.
+    //   trigger == -> !=: (1,10) survives, (1,20) dropped.
+    #[test]
+    fn timer_cancel_one_removes_exact_pair() {
+        let mut t: TimerTable<8> = TimerTable::new();
+        t.start(1, 10, Duration::from_nanos(100));
+        t.start(1, 20, Duration::from_nanos(200));
+        t.start(2, 10, Duration::from_nanos(300));
+        t.cancel_one(1, 10);
+
+        let has = |s, trg| t.entries.iter().any(|e| e.state == s && e.trigger == trg);
+        assert_eq!(t.entries.len(), 2);
+        assert!(!has(1, 10), "(1,10) must be cancelled");
+        assert!(has(1, 20), "(1,20) must remain");
+        assert!(has(2, 10), "(2,10) must remain");
+    }
+
+    // ───── TimerTable::decrement ─────
+
+    // Kills: decrement with ()
+    #[test]
+    fn timer_decrement_reduces_remaining() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(1, 1, Duration::from_nanos(500));
+        t.decrement(Duration::from_nanos(200));
+        assert_eq!(t.entries[0].remaining_ns, 300);
+    }
+
+    // ───── TimerTable::pop_expired ─────
+
+    // Kills body mutations: None, Some((0,0)/(0,1)/(1,0)/(1,1))
+    // Uses state/trigger distinct from 0/1 so no fixed return matches.
+    // Also kills the "entry is removed" invariant.
+    #[test]
+    fn timer_pop_expired_returns_exact_pair_and_removes() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(5, 7, Duration::from_nanos(0));
+        let depth = [0u8, 0, 0, 0, 0, 1, 0, 1];
+        assert_eq!(t.pop_expired(&depth), Some((5, 7)));
+        assert_eq!(t.entries.len(), 0);
+    }
+
+    // Kills L202: `remaining_ns == 0` -> `!= 0`
+    // A still-running timer must not be returned.
+    #[test]
+    fn timer_pop_expired_ignores_nonzero_remaining() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(5, 7, Duration::from_nanos(100));
+        let depth = [0u8, 0, 0, 0, 0, 1, 0, 1];
+        assert_eq!(t.pop_expired(&depth), None);
+        assert_eq!(t.entries.len(), 1); // not removed
+    }
+
+    // Kills L208: depth `>` -> `==` or `<`
+    // Two expired entries at different depths; deepest must win.
+    #[test]
+    fn timer_pop_expired_picks_deepest() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(1, 100, Duration::from_nanos(0)); // shallow
+        t.start(2, 200, Duration::from_nanos(0)); // deeper
+        let depth = [0u8, 1, 3, 0];
+        assert_eq!(t.pop_expired(&depth), Some((2, 200)));
+    }
+
+    // Kills L208: `>` -> `>=`
+    // Two expired entries at *equal* depth; first-declared must win.
+    // With `>=`, the later entry replaces the earlier on tie.
+    #[test]
+    fn timer_pop_expired_breaks_ties_by_declaration_order() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(1, 100, Duration::from_nanos(0));
+        t.start(2, 200, Duration::from_nanos(0));
+        let depth = [0u8, 2, 2, 0]; // both at depth 2
+        assert_eq!(t.pop_expired(&depth), Some((1, 100)));
+    }
+
+    // ───── TimerTable::min_remaining ─────
+
+    // Kills L223 body None + body Some(default)
+    // Kills L224 / -> * and / -> %
+    // Kills L225 % -> + and % -> /
+    //
+    // 1_500_000_000 ns = 1.5s. Every mutation yields a clearly wrong duration:
+    //   None: returns None, not Some(1.5s).
+    //   Some(default): returns Duration::ZERO.
+    //   / -> *: secs = ns * 1e9 overflows (or caught by `as u64`); not 1.
+    //   / -> %: secs = ns % 1e9 = 5e8; not 1.
+    //   % -> +: rem = ns + 1e9 overflows u32; not 5e8.
+    //   % -> /: rem = ns / 1e9 = 1; not 5e8.
+    #[test]
+    fn timer_min_remaining_exact_duration() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(1, 1, Duration::from_nanos(1_500_000_000));
+        assert_eq!(t.min_remaining(), Some(Duration::new(1, 500_000_000)));
+    }
+
+    // Kills: min_remaining -> None (always). Explicit contrast to the empty case.
+    #[test]
+    fn timer_min_remaining_none_when_empty() {
+        let t: TimerTable<4> = TimerTable::new();
+        assert_eq!(t.min_remaining(), None);
+    }
+
+    // Picks the smallest across multiple entries.
+    #[test]
+    fn timer_min_remaining_picks_smallest() {
+        let mut t: TimerTable<4> = TimerTable::new();
+        t.start(1, 1, Duration::from_nanos(9_999));
+        t.start(2, 2, Duration::from_nanos(100));
+        t.start(3, 3, Duration::from_nanos(5_000));
+        assert_eq!(t.min_remaining(), Some(Duration::from_nanos(100)));
+    }
+
+    // ───── duration_from_secs_f64 ─────
+
+    // Kills body -> Default, * -> +, * -> /
+    //
+    // 1.5s -> 1_500_000_000ns exactly.
+    //   body -> Default: returns ZERO.
+    //   * -> +: secs + 1e9 = 1_000_000_001.5 -> 1_000_000_001 ns.
+    //   * -> /: secs / 1e9 = 1.5e-9 -> 0 ns.
+    #[test]
+    fn duration_from_secs_f64_multiplies_correctly() {
+        assert_eq!(
+            duration_from_secs_f64(1.5),
+            Duration::from_nanos(1_500_000_000)
+        );
+        assert_eq!(
+            duration_from_secs_f64(0.25),
+            Duration::from_nanos(250_000_000)
+        );
+    }
+}

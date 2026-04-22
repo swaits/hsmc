@@ -2,6 +2,13 @@
 /target
 **/target/
 
+# Tooling output (coverage, mutation testing, profiling, mise cache)
+/coverage/
+/mutants.out/
+/mutants.out.old/
+mutation_history.json
+*.profraw
+
 # Local Claude Code config (per-host overrides)
 .claude/settings.local.json
 
