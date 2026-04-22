@@ -4,10 +4,10 @@
 
 use proc_macro::TokenStream;
 
-mod parse;
-mod ir;
-mod validate;
 mod codegen;
+mod ir;
+mod parse;
+mod validate;
 
 /// See the `hsmc` crate for documentation.
 #[proc_macro]

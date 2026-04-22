@@ -143,7 +143,13 @@ pub fn build_ir(input: StatechartInput) -> syn::Result<Ir> {
 
     let name_span = ir.name.span();
     let root_name = Ident::new("__Root", name_span);
-    let root_id = alloc_state(&mut ir, root_name, None, 0, root_body.default_span.unwrap_or(name_span));
+    let root_id = alloc_state(
+        &mut ir,
+        root_name,
+        None,
+        0,
+        root_body.default_span.unwrap_or(name_span),
+    );
     lower_body(&mut ir, root_id, &root_body, true, &state_names)?;
 
     Ok(ir)
@@ -271,11 +277,7 @@ fn params_match(a: &[PayloadField], b: &[PayloadField]) -> bool {
     })
 }
 
-fn intern_event(
-    ir: &mut Ir,
-    i: &Ident,
-    payload: Option<&EventPayload>,
-) -> syn::Result<u16> {
+fn intern_event(ir: &mut Ir, i: &Ident, payload: Option<&EventPayload>) -> syn::Result<u16> {
     let kind = match payload {
         None => VariantKind::Unit,
         Some(p) => match p.kind {
@@ -348,13 +350,7 @@ fn variant_kind_name(k: VariantKind) -> &'static str {
     }
 }
 
-fn intern_duration(
-    ir: &mut Ir,
-    expr: &Expr,
-    key: &str,
-    repeat: bool,
-    span: Span,
-) -> u16 {
+fn intern_duration(ir: &mut Ir, expr: &Expr, key: &str, repeat: bool, span: Span) -> u16 {
     let full_key = format!("{}:{}", key, repeat);
     if let Some(dt) = ir.duration_triggers.iter().find(|d| d.key == full_key) {
         return dt.id;
@@ -395,7 +391,12 @@ fn lower_body(
                 let id = intern_event(ir, variant, payload.as_ref())?;
                 TriggerIr::Event(id, variant.clone(), payload.clone())
             }
-            Trigger::Duration { expr, key, span, repeat } => {
+            Trigger::Duration {
+                expr,
+                key,
+                span,
+                repeat,
+            } => {
                 let id = intern_duration(ir, expr, key, *repeat, *span);
                 let owned = &mut ir.states[state_id as usize].owned_timers;
                 if !owned.contains(&id) {
@@ -477,13 +478,9 @@ fn classify_target(
     } else {
         // Action handler.
         let aid = match trig {
-            TriggerIr::Event(_, variant, Some(payload)) => intern_action_with_params(
-                ir,
-                target,
-                &payload.fields,
-                variant,
-                payload.kind,
-            )?,
+            TriggerIr::Event(_, variant, Some(payload)) => {
+                intern_action_with_params(ir, target, &payload.fields, variant, payload.kind)?
+            }
             _ => intern_action_unit(ir, target)?,
         };
         Ok(HandlerKindIr::Action(aid, target.clone()))
@@ -495,7 +492,7 @@ pub fn resolve_transitions(ir: &mut Ir) -> syn::Result<()> {
     let mut name_map = std::collections::HashMap::new();
     for s in &ir.states {
         if s.name != "__Root" {
-            if name_map.insert(s.name.to_string(), s.id).is_some() {}
+            name_map.insert(s.name.to_string(), s.id);
         }
     }
 

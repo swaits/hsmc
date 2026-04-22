@@ -15,7 +15,10 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
             continue;
         }
         if let Some(_prev) = seen.insert(s.name.to_string(), s.id) {
-            return Err(syn::Error::new(s.span, format!("duplicate state name `{}`", s.name)));
+            return Err(syn::Error::new(
+                s.span,
+                format!("duplicate state name `{}`", s.name),
+            ));
         }
     }
 
@@ -90,7 +93,10 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
         if !s.children.is_empty() && s.default_child.is_none() {
             return Err(syn::Error::new(
                 s.span,
-                format!("state `{}` has children but no `default` declaration", s.name),
+                format!(
+                    "state `{}` has children but no `default` declaration",
+                    s.name
+                ),
             ));
         }
 
@@ -118,7 +124,10 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
                     if let Some(_prev) = trig_txn_seen.insert(key.clone(), h.decl_index) {
                         return Err(syn::Error::new(
                             trig_span,
-                            format!("duplicate transition on trigger `{}` in state `{}`", trig_display, s.name),
+                            format!(
+                                "duplicate transition on trigger `{}` in state `{}`",
+                                trig_display, s.name
+                            ),
                         ));
                     }
                     if !name_map.contains_key(&target.to_string()) {
@@ -181,25 +190,35 @@ pub fn validate_parse_tree(input: &StatechartInput) -> syn::Result<()> {
 fn validate_body(body: &StateBody, is_root: bool, state_name: &str) -> syn::Result<()> {
     if body.default_count > 1 {
         return Err(syn::Error::new(
-            body.default_span.unwrap_or_else(proc_macro2::Span::call_site),
+            body.default_span
+                .unwrap_or_else(proc_macro2::Span::call_site),
             format!("multiple `default` declarations in state `{}`", state_name),
         ));
     }
     if body.terminate_count > 1 {
         return Err(syn::Error::new(
-            body.terminate.as_ref().map(|(_, s)| *s).unwrap_or_else(proc_macro2::Span::call_site),
+            body.terminate
+                .as_ref()
+                .map(|(_, s)| *s)
+                .unwrap_or_else(proc_macro2::Span::call_site),
             "multiple `terminate` declarations",
         ));
     }
     if !is_root {
         if let Some((_, span)) = &body.terminate {
-            return Err(syn::Error::new(*span, "`terminate` is only valid at the root level"));
+            return Err(syn::Error::new(
+                *span,
+                "`terminate` is only valid at the root level",
+            ));
         }
     }
     if body.default_child.is_some() && body.children.is_empty() {
         return Err(syn::Error::new(
             body.default_span.unwrap(),
-            format!("`default` in state `{}` which has no child states", state_name),
+            format!(
+                "`default` in state `{}` which has no child states",
+                state_name
+            ),
         ));
     }
     if let (Some((dc, dspan)), false) = (&body.default_child, body.children.is_empty()) {

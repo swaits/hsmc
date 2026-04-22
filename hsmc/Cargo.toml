@@ -3,7 +3,15 @@ name = "hsmc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Hierarchical state machines (statecharts) with a declarative proc macro."
+readme = "../README.md"
+keywords = ["statechart", "state-machine", "hsm", "embassy", "embedded"]
+categories = ["embedded", "no-std", "asynchronous", "rust-patterns"]
+autoexamples = false
+exclude = ["examples/microwave_tui.rs"]
 
 [features]
 default = []
@@ -27,10 +35,6 @@ futures = "0.3"
 
 [[example]]
 name = "microwave"
-required-features = ["tokio"]
-
-[[example]]
-name = "microwave_tui"
 required-features = ["tokio"]
 
 [[example]]

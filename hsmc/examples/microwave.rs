@@ -301,7 +301,10 @@ impl OvenActions for OvenActionContext<'_> {
 #[tokio::main(flavor = "current_thread")]
 async fn main() {
     let hw = Arc::new(Mutex::new(Hardware::default()));
-    let ctx = OvenContext { hw: Arc::clone(&hw), ..Default::default() };
+    let ctx = OvenContext {
+        hw: Arc::clone(&hw),
+        ..Default::default()
+    };
 
     // `with_queue_capacity::<N>` overrides the default queue size (8). We
     // pick 16 to comfortably hold the burst of events below.

@@ -118,7 +118,9 @@ pub mod __private {
 
     impl<E, const N: usize> EventQueue<E, N> {
         pub const fn new() -> Self {
-            Self { inner: heapless::Deque::new() }
+            Self {
+                inner: heapless::Deque::new(),
+            }
         }
         pub fn push(&mut self, ev: E) -> Result<(), HsmcError> {
             self.inner.push_back(ev).map_err(|_| HsmcError::QueueFull)
@@ -135,7 +137,9 @@ pub mod __private {
     }
 
     impl<E, const N: usize> Default for EventQueue<E, N> {
-        fn default() -> Self { Self::new() }
+        fn default() -> Self {
+            Self::new()
+        }
     }
 
     /// A fixed-capacity timer table: `(state_index, trigger_index, remaining_nanos)`.
@@ -150,9 +154,17 @@ pub mod __private {
         pub remaining_ns: u128,
     }
 
+    impl<const N: usize> Default for TimerTable<N> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
     impl<const N: usize> TimerTable<N> {
         pub const fn new() -> Self {
-            Self { entries: heapless::Vec::new() }
+            Self {
+                entries: heapless::Vec::new(),
+            }
         }
         pub fn start(&mut self, state: u16, trigger: u16, duration: core::time::Duration) {
             let ns = duration.as_nanos();
@@ -163,13 +175,18 @@ pub mod __private {
                     return;
                 }
             }
-            let _ = self.entries.push(TimerEntry { state, trigger, remaining_ns: ns });
+            let _ = self.entries.push(TimerEntry {
+                state,
+                trigger,
+                remaining_ns: ns,
+            });
         }
         pub fn cancel_state(&mut self, state: u16) {
             self.entries.retain(|e| e.state != state);
         }
         pub fn cancel_one(&mut self, state: u16, trigger: u16) {
-            self.entries.retain(|e| !(e.state == state && e.trigger == trigger));
+            self.entries
+                .retain(|e| !(e.state == state && e.trigger == trigger));
         }
         pub fn decrement(&mut self, elapsed: core::time::Duration) {
             let ns = elapsed.as_nanos();
@@ -198,7 +215,9 @@ pub mod __private {
             if let Some(i) = best {
                 let e = self.entries.swap_remove(i);
                 Some((e.state, e.trigger))
-            } else { None }
+            } else {
+                None
+            }
         }
         pub fn min_remaining(&self) -> Option<core::time::Duration> {
             self.entries.iter().map(|e| e.remaining_ns).min().map(|ns| {

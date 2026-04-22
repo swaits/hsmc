@@ -4,10 +4,14 @@
 use hsmc::{statechart, Duration};
 
 #[derive(Default)]
-pub struct Ctx { pub log: Vec<String> }
+pub struct Ctx {
+    pub log: Vec<String>,
+}
 
 #[derive(Debug, Clone)]
-pub enum Ev { Halt }
+pub enum Ev {
+    Halt,
+}
 
 statechart! {
 TokM {

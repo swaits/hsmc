@@ -3,7 +3,13 @@ name = "hsmc-macros"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 description = "Procedural macro implementation for the hsmc crate."
+readme = "../README.md"
+keywords = ["statechart", "state-machine", "hsm", "macros", "proc-macro"]
+categories = ["rust-patterns", "development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true

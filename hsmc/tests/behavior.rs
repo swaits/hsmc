@@ -24,25 +24,33 @@ impl TestCtx {
 mod t1_1 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _Unused }
+    pub enum Ev {
+        _Unused,
+    }
 
     statechart! {
-T11 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        entry: do_post;
-        state Red {
-            entry: red_on;
-            exit: red_off;
+    T11 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            entry: do_post;
+            state Red {
+                entry: red_on;
+                exit: red_off;
+            }
         }
-    }
-    }
+        }
 
     impl T11Actions for T11ActionContext<'_> {
-        fn do_post(&mut self) { self.log.push("do_post".into()); }
-        fn red_on(&mut self) { self.log.push("red_on".into()); }
-        fn red_off(&mut self) { self.log.push("red_off".into()); }
+        fn do_post(&mut self) {
+            self.log.push("do_post".into());
+        }
+        fn red_on(&mut self) {
+            self.log.push("red_on".into());
+        }
+        fn red_off(&mut self) {
+            self.log.push("red_off".into());
+        }
     }
 
     #[test]
@@ -59,38 +67,51 @@ T11 {
 mod t1_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _Unused }
+    pub enum Ev {
+        _Unused,
+    }
 
     statechart! {
-T12 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        entry: r_entry;
-        state A {
-            entry: a_entry;
-            default(B);
-            state B {
-                entry: b_entry;
-                default(C);
-                state C { entry: c_entry; }
+    T12 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            entry: r_entry;
+            state A {
+                entry: a_entry;
+                default(B);
+                state B {
+                    entry: b_entry;
+                    default(C);
+                    state C { entry: c_entry; }
+                }
             }
         }
-    }
-    }
+        }
 
     impl T12Actions for T12ActionContext<'_> {
-        fn r_entry(&mut self) { self.log.push("r_entry".into()); }
-        fn a_entry(&mut self) { self.log.push("a_entry".into()); }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn c_entry(&mut self) { self.log.push("c_entry".into()); }
+        fn r_entry(&mut self) {
+            self.log.push("r_entry".into());
+        }
+        fn a_entry(&mut self) {
+            self.log.push("a_entry".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
     }
 
     #[test]
     fn t1_2_nested_default() {
         let mut m = T12::new(TestCtx::default());
         m.step(Duration::ZERO);
-        assert_eq!(m.context().logs(), ["r_entry", "a_entry", "b_entry", "c_entry"]);
+        assert_eq!(
+            m.context().logs(),
+            ["r_entry", "a_entry", "b_entry", "c_entry"]
+        );
         assert_eq!(m.current_state(), T12State::C);
     }
 }
@@ -99,32 +120,43 @@ T12 {
 mod t2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { GoGreen, Reset }
+    pub enum Ev {
+        GoGreen,
+        Reset,
+    }
 
     statechart! {
-T2A {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            entry: red_on;
-            exit: red_off;
-            on(GoGreen) => Green;
-            on(Reset) => Red;
-            on(after Duration::from_millis(200)) => Green;
+    T2A {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                entry: red_on;
+                exit: red_off;
+                on(GoGreen) => Green;
+                on(Reset) => Red;
+                on(after Duration::from_millis(200)) => Green;
+            }
+            state Green {
+                entry: green_on;
+                exit: green_off;
+            }
         }
-        state Green {
-            entry: green_on;
-            exit: green_off;
         }
-    }
-    }
 
     impl T2AActions for T2AActionContext<'_> {
-        fn red_on(&mut self) { self.log.push("red_on".into()); }
-        fn red_off(&mut self) { self.log.push("red_off".into()); }
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
-        fn green_off(&mut self) { self.log.push("green_off".into()); }
+        fn red_on(&mut self) {
+            self.log.push("red_on".into());
+        }
+        fn red_off(&mut self) {
+            self.log.push("red_off".into());
+        }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
+        fn green_off(&mut self) {
+            self.log.push("green_off".into());
+        }
     }
 
     #[test]
@@ -165,28 +197,38 @@ T2A {
 mod t3_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T33 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            exit: red_off;
-            on(Go) => log_go;
-            on(Go) => prepare;
-            on(Go) => Green;
+    T33 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                exit: red_off;
+                on(Go) => log_go;
+                on(Go) => prepare;
+                on(Go) => Green;
+            }
+            state Green { entry: green_on; }
         }
-        state Green { entry: green_on; }
-    }
-    }
+        }
 
     impl T33Actions for T33ActionContext<'_> {
-        fn log_go(&mut self) { self.log.push("log_go".into()); }
-        fn prepare(&mut self) { self.log.push("prepare".into()); }
-        fn red_off(&mut self) { self.log.push("red_off".into()); }
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
+        fn log_go(&mut self) {
+            self.log.push("log_go".into());
+        }
+        fn prepare(&mut self) {
+            self.log.push("prepare".into());
+        }
+        fn red_off(&mut self) {
+            self.log.push("red_off".into());
+        }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
     }
 
     #[test]
@@ -195,7 +237,10 @@ T33 {
         m.step(Duration::ZERO);
         m.send(Ev::Go).unwrap();
         m.step(Duration::ZERO);
-        assert_eq!(m.context().logs(), ["log_go", "prepare", "red_off", "green_on"]);
+        assert_eq!(
+            m.context().logs(),
+            ["log_go", "prepare", "red_off", "green_on"]
+        );
         assert_eq!(m.current_state(), T33State::Green);
     }
 }
@@ -204,21 +249,27 @@ T33 {
 mod t2_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _Unused }
+    pub enum Ev {
+        _Unused,
+    }
 
     statechart! {
-T22 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red { on(after Duration::from_secs(5)) => Green; exit: red_off; }
-        state Green { entry: green_on; }
-    }
-    }
+    T22 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red { on(after Duration::from_secs(5)) => Green; exit: red_off; }
+            state Green { entry: green_on; }
+        }
+        }
 
     impl T22Actions for T22ActionContext<'_> {
-        fn red_off(&mut self) { self.log.push("red_off".into()); }
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
+        fn red_off(&mut self) {
+            self.log.push("red_off".into());
+        }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
     }
 
     #[test]
@@ -237,32 +288,42 @@ T22 {
 mod t4_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo }
+    pub enum Ev {
+        Foo,
+    }
 
     statechart! {
-T42 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            exit: a_exit;
-            on(Foo) => D;
-            state B {
-                default(C);
-                exit: b_exit;
-                state C { exit: c_exit; }
+    T42 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                exit: a_exit;
+                on(Foo) => D;
+                state B {
+                    default(C);
+                    exit: b_exit;
+                    state C { exit: c_exit; }
+                }
             }
+            state D { entry: d_entry; }
         }
-        state D { entry: d_entry; }
-    }
-    }
+        }
 
     impl T42Actions for T42ActionContext<'_> {
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
-        fn c_exit(&mut self) { self.log.push("c_exit".into()); }
-        fn d_entry(&mut self) { self.log.push("d_entry".into()); }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_exit(&mut self) {
+            self.log.push("c_exit".into());
+        }
+        fn d_entry(&mut self) {
+            self.log.push("d_entry".into());
+        }
     }
 
     #[test]
@@ -273,7 +334,10 @@ T42 {
         m.send(Ev::Foo).unwrap();
         m.step(Duration::ZERO);
         assert_eq!(m.current_state(), T42State::D);
-        assert_eq!(m.context().logs(), ["c_exit", "b_exit", "a_exit", "d_entry"]);
+        assert_eq!(
+            m.context().logs(),
+            ["c_exit", "b_exit", "a_exit", "d_entry"]
+        );
     }
 }
 
@@ -281,32 +345,42 @@ T42 {
 mod t6_1 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Halt }
+    pub enum Ev {
+        Halt,
+    }
 
     statechart! {
-T61 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        terminate(Halt);
-        exit: root_exit;
-        state A {
-            default(B);
-            exit: a_exit;
-            state B {
-                default(C);
-                exit: b_exit;
-                state C { exit: c_exit; }
+    T61 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            terminate(Halt);
+            exit: root_exit;
+            state A {
+                default(B);
+                exit: a_exit;
+                state B {
+                    default(C);
+                    exit: b_exit;
+                    state C { exit: c_exit; }
+                }
             }
         }
-    }
-    }
+        }
 
     impl T61Actions for T61ActionContext<'_> {
-        fn root_exit(&mut self) { self.log.push("root_exit".into()); }
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
-        fn c_exit(&mut self) { self.log.push("c_exit".into()); }
+        fn root_exit(&mut self) {
+            self.log.push("root_exit".into());
+        }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_exit(&mut self) {
+            self.log.push("c_exit".into());
+        }
     }
 
     #[test]
@@ -316,7 +390,10 @@ T61 {
         m.send(Ev::Halt).unwrap();
         m.step(Duration::ZERO);
         assert!(m.is_terminated());
-        assert_eq!(m.context().logs(), ["c_exit", "b_exit", "a_exit", "root_exit"]);
+        assert_eq!(
+            m.context().logs(),
+            ["c_exit", "b_exit", "a_exit", "root_exit"]
+        );
         assert!(m.step(Duration::ZERO).is_none());
     }
 }
@@ -325,27 +402,32 @@ T61 {
 mod t7_1 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo, Bar }
+    pub enum Ev {
+        Foo,
+        Bar,
+    }
 
     statechart! {
-T71 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            on(Foo) => emit_bar;
-            on(Bar) => B;
+    T71 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                on(Foo) => emit_bar;
+                on(Bar) => B;
+            }
+            state B { entry: b_entry; }
         }
-        state B { entry: b_entry; }
-    }
-    }
+        }
 
     impl T71Actions for T71ActionContext<'_> {
         fn emit_bar(&mut self) {
             self.log.push("emit_bar".into());
             self.emit(Ev::Bar).unwrap();
         }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
     }
 
     #[test]
@@ -365,21 +447,27 @@ T71 {
 mod t1_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T13 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        entry: r_entry;
-        state Red { entry: red_on; }
-    }
-    }
+    T13 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            entry: r_entry;
+            state Red { entry: red_on; }
+        }
+        }
 
     impl T13Actions for T13ActionContext<'_> {
-        fn r_entry(&mut self) { self.log.push("r_entry".into()); }
-        fn red_on(&mut self) { self.log.push("red_on".into()); }
+        fn r_entry(&mut self) {
+            self.log.push("r_entry".into());
+        }
+        fn red_on(&mut self) {
+            self.log.push("red_on".into());
+        }
     }
 
     #[test]
@@ -394,25 +482,31 @@ T13 {
 mod t2_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { EarlyExit }
+    pub enum Ev {
+        EarlyExit,
+    }
 
     statechart! {
-T23 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            on(after Duration::from_secs(5)) => Green;
-            on(EarlyExit) => Yellow;
+    T23 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                on(after Duration::from_secs(5)) => Green;
+                on(EarlyExit) => Yellow;
+            }
+            state Green { entry: green_on; }
+            state Yellow { entry: yellow_on; }
         }
-        state Green { entry: green_on; }
-        state Yellow { entry: yellow_on; }
-    }
-    }
+        }
 
     impl T23Actions for T23ActionContext<'_> {
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
-        fn yellow_on(&mut self) { self.log.push("yellow_on".into()); }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
+        fn yellow_on(&mut self) {
+            self.log.push("yellow_on".into());
+        }
     }
 
     #[test]
@@ -432,34 +526,44 @@ T23 {
 mod t2_4 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Jump }
+    pub enum Ev {
+        Jump,
+    }
 
     statechart! {
-T24 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            exit: a_exit;
-            state B {
-                default(C);
-                exit: b_exit;
-                state C {
-                    exit: c_exit;
-                    on(Jump) => D;
+    T24 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                exit: a_exit;
+                state B {
+                    default(C);
+                    exit: b_exit;
+                    state C {
+                        exit: c_exit;
+                        on(Jump) => D;
+                    }
                 }
             }
+            state D { entry: d_entry; }
         }
-        state D { entry: d_entry; }
-    }
-    }
+        }
 
     impl T24Actions for T24ActionContext<'_> {
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
-        fn c_exit(&mut self) { self.log.push("c_exit".into()); }
-        fn d_entry(&mut self) { self.log.push("d_entry".into()); }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_exit(&mut self) {
+            self.log.push("c_exit".into());
+        }
+        fn d_entry(&mut self) {
+            self.log.push("d_entry".into());
+        }
     }
 
     #[test]
@@ -469,7 +573,10 @@ T24 {
         m.send(Ev::Jump).unwrap();
         m.step(Duration::ZERO);
         assert_eq!(m.current_state(), T24State::D);
-        assert_eq!(m.context().logs(), ["c_exit", "b_exit", "a_exit", "d_entry"]);
+        assert_eq!(
+            m.context().logs(),
+            ["c_exit", "b_exit", "a_exit", "d_entry"]
+        );
     }
 }
 
@@ -477,30 +584,38 @@ T24 {
 mod t2_5 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T25 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A { on(Go) => B; }
-        state B {
-            default(C);
-            entry: b_entry;
-            state C {
-                default(D);
-                entry: c_entry;
-                state D { entry: d_entry; }
+    T25 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A { on(Go) => B; }
+            state B {
+                default(C);
+                entry: b_entry;
+                state C {
+                    default(D);
+                    entry: c_entry;
+                    state D { entry: d_entry; }
+                }
             }
         }
-    }
-    }
+        }
 
     impl T25Actions for T25ActionContext<'_> {
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn c_entry(&mut self) { self.log.push("c_entry".into()); }
-        fn d_entry(&mut self) { self.log.push("d_entry".into()); }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
+        fn d_entry(&mut self) {
+            self.log.push("d_entry".into());
+        }
     }
 
     #[test]
@@ -518,26 +633,34 @@ T25 {
 mod t2_7 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T27 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            exit: a_exit;
-            state B { exit: b_exit; on(Go) => C; }
+    T27 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                exit: a_exit;
+                state B { exit: b_exit; on(Go) => C; }
+            }
+            state C { entry: c_entry; }
         }
-        state C { entry: c_entry; }
-    }
-    }
+        }
 
     impl T27Actions for T27ActionContext<'_> {
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
-        fn c_entry(&mut self) { self.log.push("c_entry".into()); }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
     }
 
     #[test]
@@ -555,31 +678,41 @@ T27 {
 mod t2_8 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Up }
+    pub enum Ev {
+        Up,
+    }
 
     statechart! {
-T28 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            entry: a_entry;
-            exit: a_exit;
-            state B {
-                entry: b_entry;
-                exit: b_exit;
-                on(Up) => A;
+    T28 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                entry: a_entry;
+                exit: a_exit;
+                state B {
+                    entry: b_entry;
+                    exit: b_exit;
+                    on(Up) => A;
+                }
             }
         }
-    }
-    }
+        }
 
     impl T28Actions for T28ActionContext<'_> {
-        fn a_entry(&mut self) { self.log.push("a_entry".into()); }
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
+        fn a_entry(&mut self) {
+            self.log.push("a_entry".into());
+        }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
     }
 
     #[test]
@@ -591,7 +724,10 @@ T28 {
         m.send(Ev::Up).unwrap();
         m.step(Duration::ZERO);
         assert_eq!(m.current_state(), T28State::B);
-        assert_eq!(m.context().logs(), ["b_exit", "a_exit", "a_entry", "b_entry"]);
+        assert_eq!(
+            m.context().logs(),
+            ["b_exit", "a_exit", "a_entry", "b_entry"]
+        );
     }
 }
 
@@ -599,25 +735,33 @@ T28 {
 mod t3_12 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Beep }
+    pub enum Ev {
+        Beep,
+    }
 
     statechart! {
-T312 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            on(Beep) => honk1;
-            on(Beep) => honk2;
-            on(Beep) => honk3;
+    T312 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                on(Beep) => honk1;
+                on(Beep) => honk2;
+                on(Beep) => honk3;
+            }
         }
-    }
-    }
+        }
 
     impl T312Actions for T312ActionContext<'_> {
-        fn honk1(&mut self) { self.log.push("honk1".into()); }
-        fn honk2(&mut self) { self.log.push("honk2".into()); }
-        fn honk3(&mut self) { self.log.push("honk3".into()); }
+        fn honk1(&mut self) {
+            self.log.push("honk1".into());
+        }
+        fn honk2(&mut self) {
+            self.log.push("honk2".into());
+        }
+        fn honk3(&mut self) {
+            self.log.push("honk3".into());
+        }
     }
 
     #[test]
@@ -635,21 +779,25 @@ T312 {
 mod t3_4 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T34 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            on(after Duration::from_millis(500)) => heartbeat;
+    T34 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                on(after Duration::from_millis(500)) => heartbeat;
+            }
         }
-    }
-    }
+        }
 
     impl T34Actions for T34ActionContext<'_> {
-        fn heartbeat(&mut self) { self.log.push("beat".into()); }
+        fn heartbeat(&mut self) {
+            self.log.push("beat".into());
+        }
     }
 
     #[test]
@@ -670,27 +818,33 @@ T34 {
 mod t4_misc {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo, Unknown }
+    pub enum Ev {
+        Foo,
+        Unknown,
+    }
 
     statechart! {
-T4M {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        on(Foo) => root_handler;
-        state A {
-            default(B);
-            state B {
-                default(C);
-                state C { entry: c_entry; }
+    T4M {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            on(Foo) => root_handler;
+            state A {
+                default(B);
+                state B {
+                    default(C);
+                    state C { entry: c_entry; }
+                }
             }
         }
-    }
-    }
+        }
 
     impl T4MActions for T4MActionContext<'_> {
-        fn root_handler(&mut self) { self.log.push("root".into()); }
-        fn c_entry(&mut self) { /* nop */ }
+        fn root_handler(&mut self) {
+            self.log.push("root".into());
+        }
+        fn c_entry(&mut self) { /* nop */
+        }
     }
 
     #[test]
@@ -716,26 +870,32 @@ T4M {
 mod t4_14 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo }
+    pub enum Ev {
+        Foo,
+    }
 
     statechart! {
-T414 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(C);
-            on(Foo) => E;
-            state C { on(Foo) => D; }
+    T414 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(C);
+                on(Foo) => E;
+                state C { on(Foo) => D; }
+            }
+            state D { entry: d_entry; }
+            state E { entry: e_entry; }
         }
-        state D { entry: d_entry; }
-        state E { entry: e_entry; }
-    }
-    }
+        }
 
     impl T414Actions for T414ActionContext<'_> {
-        fn d_entry(&mut self) { self.log.push("d_entry".into()); }
-        fn e_entry(&mut self) { self.log.push("e_entry".into()); }
+        fn d_entry(&mut self) {
+            self.log.push("d_entry".into());
+        }
+        fn e_entry(&mut self) {
+            self.log.push("e_entry".into());
+        }
     }
 
     #[test]
@@ -754,28 +914,33 @@ T414 {
 mod t4_6 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T46 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            on(after Duration::from_secs(10)) => D;
-            state B {
-                default(C);
-                state C { entry: c_entry; }
+    T46 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                on(after Duration::from_secs(10)) => D;
+                state B {
+                    default(C);
+                    state C { entry: c_entry; }
+                }
             }
+            state D { entry: d_entry; }
         }
-        state D { entry: d_entry; }
-    }
-    }
+        }
 
     impl T46Actions for T46ActionContext<'_> {
-        fn d_entry(&mut self) { self.log.push("d_entry".into()); }
-        fn c_entry(&mut self) { /* nop */ }
+        fn d_entry(&mut self) {
+            self.log.push("d_entry".into());
+        }
+        fn c_entry(&mut self) { /* nop */
+        }
     }
 
     #[test]
@@ -792,38 +957,56 @@ T46 {
 mod t5 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T5X {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            entry: alpha, beta;
-            entry: gamma;
-            exit: cleanup1;
-            exit: cleanup2;
-            state B {
-                entry: b_entry;
-                exit: b_exit;
-                on(Go) => Z;
+    T5X {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                entry: alpha, beta;
+                entry: gamma;
+                exit: cleanup1;
+                exit: cleanup2;
+                state B {
+                    entry: b_entry;
+                    exit: b_exit;
+                    on(Go) => Z;
+                }
             }
+            state Z { entry: z_entry; }
         }
-        state Z { entry: z_entry; }
-    }
-    }
+        }
 
     impl T5XActions for T5XActionContext<'_> {
-        fn alpha(&mut self) { self.log.push("alpha".into()); }
-        fn beta(&mut self) { self.log.push("beta".into()); }
-        fn gamma(&mut self) { self.log.push("gamma".into()); }
-        fn cleanup1(&mut self) { self.log.push("cleanup1".into()); }
-        fn cleanup2(&mut self) { self.log.push("cleanup2".into()); }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn b_exit(&mut self) { self.log.push("b_exit".into()); }
-        fn z_entry(&mut self) { self.log.push("z_entry".into()); }
+        fn alpha(&mut self) {
+            self.log.push("alpha".into());
+        }
+        fn beta(&mut self) {
+            self.log.push("beta".into());
+        }
+        fn gamma(&mut self) {
+            self.log.push("gamma".into());
+        }
+        fn cleanup1(&mut self) {
+            self.log.push("cleanup1".into());
+        }
+        fn cleanup2(&mut self) {
+            self.log.push("cleanup2".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn b_exit(&mut self) {
+            self.log.push("b_exit".into());
+        }
+        fn z_entry(&mut self) {
+            self.log.push("z_entry".into());
+        }
     }
 
     #[test]
@@ -840,7 +1023,10 @@ T5X {
         m.context_mut().log.clear();
         m.send(Ev::Go).unwrap();
         m.step(Duration::ZERO);
-        assert_eq!(m.context().logs(), ["b_exit", "cleanup1", "cleanup2", "z_entry"]);
+        assert_eq!(
+            m.context().logs(),
+            ["b_exit", "cleanup1", "cleanup2", "z_entry"]
+        );
     }
 }
 
@@ -848,32 +1034,46 @@ T5X {
 mod t5_5 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T55 {
-        context: TestCtx;
-        events: Ev;
-        default(Parent);
-        state Parent {
-            default(A);
-            entry: parent_entry;
-            exit: parent_exit;
-            on(after Duration::from_secs(10)) => Somewhere;
-            state A { entry: a_entry; exit: a_exit; on(Go) => B; }
-            state B { entry: b_entry; }
+    T55 {
+            context: TestCtx;
+            events: Ev;
+            default(Parent);
+            state Parent {
+                default(A);
+                entry: parent_entry;
+                exit: parent_exit;
+                on(after Duration::from_secs(10)) => Somewhere;
+                state A { entry: a_entry; exit: a_exit; on(Go) => B; }
+                state B { entry: b_entry; }
+            }
+            state Somewhere { entry: somewhere_entry; }
         }
-        state Somewhere { entry: somewhere_entry; }
-    }
-    }
+        }
 
     impl T55Actions for T55ActionContext<'_> {
-        fn parent_entry(&mut self) { self.log.push("parent_entry".into()); }
-        fn parent_exit(&mut self) { self.log.push("parent_exit".into()); }
-        fn a_entry(&mut self) { self.log.push("a_entry".into()); }
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn somewhere_entry(&mut self) { self.log.push("somewhere_entry".into()); }
+        fn parent_entry(&mut self) {
+            self.log.push("parent_entry".into());
+        }
+        fn parent_exit(&mut self) {
+            self.log.push("parent_exit".into());
+        }
+        fn a_entry(&mut self) {
+            self.log.push("a_entry".into());
+        }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn somewhere_entry(&mut self) {
+            self.log.push("somewhere_entry".into());
+        }
     }
 
     #[test]
@@ -906,20 +1106,25 @@ T55 {
 mod t6_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Halt, Other }
+    pub enum Ev {
+        Halt,
+        Other,
+    }
 
     statechart! {
-T62 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        terminate(Halt);
-        state A { entry: a_entry; }
-    }
-    }
+    T62 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            terminate(Halt);
+            state A { entry: a_entry; }
+        }
+        }
 
     impl T62Actions for T62ActionContext<'_> {
-        fn a_entry(&mut self) { self.log.push("a".into()); }
+        fn a_entry(&mut self) {
+            self.log.push("a".into());
+        }
     }
 
     #[test]
@@ -938,20 +1143,24 @@ T62 {
 mod t6_4 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Halt }
+    pub enum Ev {
+        Halt,
+    }
 
     statechart! {
-T64 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        terminate(Halt);
-        state A { entry: a_entry; }
-    }
-    }
+    T64 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            terminate(Halt);
+            state A { entry: a_entry; }
+        }
+        }
 
     impl T64Actions for T64ActionContext<'_> {
-        fn a_entry(&mut self) { self.log.push("a".into()); }
+        fn a_entry(&mut self) {
+            self.log.push("a".into());
+        }
     }
 
     #[test]
@@ -971,29 +1180,36 @@ T64 {
 mod t7_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go, Cleanup }
+    pub enum Ev {
+        Go,
+        Cleanup,
+    }
 
     statechart! {
-T72 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        on(Cleanup) => do_cleanup;
-        state A {
-            exit: emit_cleanup;
-            on(Go) => B;
+    T72 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            on(Cleanup) => do_cleanup;
+            state A {
+                exit: emit_cleanup;
+                on(Go) => B;
+            }
+            state B { entry: b_entry; }
         }
-        state B { entry: b_entry; }
-    }
-    }
+        }
 
     impl T72Actions for T72ActionContext<'_> {
         fn emit_cleanup(&mut self) {
             self.log.push("a_exit".into());
             self.emit(Ev::Cleanup).unwrap();
         }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
-        fn do_cleanup(&mut self) { self.log.push("do_cleanup".into()); }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
+        fn do_cleanup(&mut self) {
+            self.log.push("do_cleanup".into());
+        }
     }
 
     #[test]
@@ -1012,25 +1228,30 @@ T72 {
 mod t7_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Start, Tick }
+    pub enum Ev {
+        Start,
+        Tick,
+    }
 
     statechart! {
-T73 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            on(Start) => flood;
+    T73 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                on(Start) => flood;
+            }
         }
-    }
-    }
+        }
 
     impl T73Actions for T73ActionContext<'_> {
         fn flood(&mut self) {
             // Queue capacity is 8 (via with_queue_capacity). Emit 9 times.
             let mut errors = 0;
             for _ in 0..9 {
-                if self.emit(Ev::Tick).is_err() { errors += 1; }
+                if self.emit(Ev::Tick).is_err() {
+                    errors += 1;
+                }
             }
             self.log.push(format!("err={}", errors));
         }
@@ -1052,33 +1273,45 @@ T73 {
 mod t8_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T83 {
-        context: TestCtx;
-        events: Ev;
-        default(Parent);
-        state Parent {
-            default(ChildA);
-            exit: parent_exit;
-            on(after Duration::from_secs(10)) => Done;
-            state ChildA {
-                exit: childa_exit;
-                on(after Duration::from_secs(3)) => ChildB;
+    T83 {
+            context: TestCtx;
+            events: Ev;
+            default(Parent);
+            state Parent {
+                default(ChildA);
+                exit: parent_exit;
+                on(after Duration::from_secs(10)) => Done;
+                state ChildA {
+                    exit: childa_exit;
+                    on(after Duration::from_secs(3)) => ChildB;
+                }
+                state ChildB { exit: childb_exit; entry: childb_entry; }
             }
-            state ChildB { exit: childb_exit; entry: childb_entry; }
+            state Done { entry: done_entry; }
         }
-        state Done { entry: done_entry; }
-    }
-    }
+        }
 
     impl T83Actions for T83ActionContext<'_> {
-        fn parent_exit(&mut self) { self.log.push("parent_exit".into()); }
-        fn childa_exit(&mut self) { self.log.push("childa_exit".into()); }
-        fn childb_exit(&mut self) { self.log.push("childb_exit".into()); }
-        fn childb_entry(&mut self) { self.log.push("childb_entry".into()); }
-        fn done_entry(&mut self) { self.log.push("done_entry".into()); }
+        fn parent_exit(&mut self) {
+            self.log.push("parent_exit".into());
+        }
+        fn childa_exit(&mut self) {
+            self.log.push("childa_exit".into());
+        }
+        fn childb_exit(&mut self) {
+            self.log.push("childb_exit".into());
+        }
+        fn childb_entry(&mut self) {
+            self.log.push("childb_entry".into());
+        }
+        fn done_entry(&mut self) {
+            self.log.push("done_entry".into());
+        }
     }
 
     #[test]
@@ -1100,17 +1333,19 @@ T83 {
 mod t8_4 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T84 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red { on(after Duration::from_secs(5)) => Green; }
-        state Green { on(after Duration::from_secs(5)) => Red; }
-    }
-    }
+    T84 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red { on(after Duration::from_secs(5)) => Green; }
+            state Green { on(after Duration::from_secs(5)) => Red; }
+        }
+        }
 
     impl T84Actions for T84ActionContext<'_> {}
 
@@ -1231,25 +1466,31 @@ mod t8_4b {
 mod t8_5 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T85 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            default(B);
-            on(after Duration::from_secs(2)) => ping;
-            state B { on(after Duration::from_secs(5)) => C; }
-            state C { entry: c_entry; }
+    T85 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                default(B);
+                on(after Duration::from_secs(2)) => ping;
+                state B { on(after Duration::from_secs(5)) => C; }
+                state C { entry: c_entry; }
+            }
         }
-    }
-    }
+        }
 
     impl T85Actions for T85ActionContext<'_> {
-        fn ping(&mut self) { self.log.push("ping".into()); }
-        fn c_entry(&mut self) { self.log.push("c_entry".into()); }
+        fn ping(&mut self) {
+            self.log.push("ping".into());
+        }
+        fn c_entry(&mut self) {
+            self.log.push("c_entry".into());
+        }
     }
 
     #[test]
@@ -1263,7 +1504,12 @@ T85 {
         assert_eq!(m.current_state(), T85State::C);
         // Verify A's timer does not re-fire
         m.step(Duration::from_secs(10));
-        let count = m.context().log.iter().filter(|s| s.as_str() == "ping").count();
+        let count = m
+            .context()
+            .log
+            .iter()
+            .filter(|s| s.as_str() == "ping")
+            .count();
         assert_eq!(count, 1);
     }
 }
@@ -1275,18 +1521,22 @@ mod t10_2 {
     pub enum NoEvents {}
 
     statechart! {
-TimerOnly {
-        context: TestCtx;
-        events: NoEvents;
-        default(A);
-        state A { on(after Duration::from_secs(1)) => B; entry: a_e; }
-        state B { on(after Duration::from_secs(1)) => A; entry: b_e; }
-    }
-    }
+    TimerOnly {
+            context: TestCtx;
+            events: NoEvents;
+            default(A);
+            state A { on(after Duration::from_secs(1)) => B; entry: a_e; }
+            state B { on(after Duration::from_secs(1)) => A; entry: b_e; }
+        }
+        }
 
     impl TimerOnlyActions for TimerOnlyActionContext<'_> {
-        fn a_e(&mut self) { self.log.push("a".into()); }
-        fn b_e(&mut self) { self.log.push("b".into()); }
+        fn a_e(&mut self) {
+            self.log.push("a".into());
+        }
+        fn b_e(&mut self) {
+            self.log.push("b".into());
+        }
     }
 
     #[test]
@@ -1303,41 +1553,55 @@ TimerOnly {
 mod t10_3 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-Deep {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        entry: root_e;
-        state A {
-            default(B);
-            entry: a_e;
-            state B {
-                default(C);
-                entry: b_e;
-                state C {
-                    default(D);
-                    entry: c_e;
-                    state D {
-                        default(E);
-                        entry: d_e;
-                        state E { entry: e_e; }
+    Deep {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            entry: root_e;
+            state A {
+                default(B);
+                entry: a_e;
+                state B {
+                    default(C);
+                    entry: b_e;
+                    state C {
+                        default(D);
+                        entry: c_e;
+                        state D {
+                            default(E);
+                            entry: d_e;
+                            state E { entry: e_e; }
+                        }
                     }
                 }
             }
         }
-    }
-    }
+        }
 
     impl DeepActions for DeepActionContext<'_> {
-        fn root_e(&mut self) { self.log.push("root".into()); }
-        fn a_e(&mut self) { self.log.push("a".into()); }
-        fn b_e(&mut self) { self.log.push("b".into()); }
-        fn c_e(&mut self) { self.log.push("c".into()); }
-        fn d_e(&mut self) { self.log.push("d".into()); }
-        fn e_e(&mut self) { self.log.push("e".into()); }
+        fn root_e(&mut self) {
+            self.log.push("root".into());
+        }
+        fn a_e(&mut self) {
+            self.log.push("a".into());
+        }
+        fn b_e(&mut self) {
+            self.log.push("b".into());
+        }
+        fn c_e(&mut self) {
+            self.log.push("c".into());
+        }
+        fn d_e(&mut self) {
+            self.log.push("d".into());
+        }
+        fn e_e(&mut self) {
+            self.log.push("e".into());
+        }
     }
 
     #[test]
@@ -1353,26 +1617,38 @@ Deep {
 mod t10_4 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo, Bar, Baz }
+    pub enum Ev {
+        Foo,
+        Bar,
+        Baz,
+    }
 
     statechart! {
-T104 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            on(Foo) => emit_bar;
-            on(Bar) => emit_baz;
-            on(Baz) => B;
+    T104 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                on(Foo) => emit_bar;
+                on(Bar) => emit_baz;
+                on(Baz) => B;
+            }
+            state B { entry: b_entry; }
         }
-        state B { entry: b_entry; }
-    }
-    }
+        }
 
     impl T104Actions for T104ActionContext<'_> {
-        fn emit_bar(&mut self) { self.emit(Ev::Bar).unwrap(); self.log.push("bar".into()); }
-        fn emit_baz(&mut self) { self.emit(Ev::Baz).unwrap(); self.log.push("baz".into()); }
-        fn b_entry(&mut self) { self.log.push("b".into()); }
+        fn emit_bar(&mut self) {
+            self.emit(Ev::Bar).unwrap();
+            self.log.push("bar".into());
+        }
+        fn emit_baz(&mut self) {
+            self.emit(Ev::Baz).unwrap();
+            self.log.push("baz".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b".into());
+        }
     }
 
     #[test]
@@ -1380,7 +1656,9 @@ T104 {
         let mut m = T104::new(TestCtx::default());
         m.step(Duration::ZERO);
         m.send(Ev::Foo).unwrap();
-        for _ in 0..5 { m.step(Duration::ZERO); }
+        for _ in 0..5 {
+            m.step(Duration::ZERO);
+        }
         assert_eq!(m.current_state(), T104State::B);
         assert_eq!(m.context().logs(), ["bar", "baz", "b"]);
     }
@@ -1390,18 +1668,21 @@ T104 {
 mod t10_5 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Halt, Cleanup }
+    pub enum Ev {
+        Halt,
+        Cleanup,
+    }
 
     statechart! {
-T105 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        terminate(Halt);
-        on(Cleanup) => do_cleanup;
-        state A { exit: a_exit; }
-    }
-    }
+    T105 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            terminate(Halt);
+            on(Cleanup) => do_cleanup;
+            state A { exit: a_exit; }
+        }
+        }
 
     impl T105Actions for T105ActionContext<'_> {
         fn a_exit(&mut self) {
@@ -1409,7 +1690,9 @@ T105 {
             // emit should be a no-op / ignored after termination begins
             let _ = self.emit(Ev::Cleanup);
         }
-        fn do_cleanup(&mut self) { self.log.push("do_cleanup".into()); }
+        fn do_cleanup(&mut self) {
+            self.log.push("do_cleanup".into());
+        }
     }
 
     #[test]
@@ -1420,7 +1703,9 @@ T105 {
         m.step(Duration::ZERO);
         assert!(m.is_terminated());
         // Keep stepping; do_cleanup should NOT run
-        for _ in 0..3 { m.step(Duration::ZERO); }
+        for _ in 0..3 {
+            m.step(Duration::ZERO);
+        }
         assert!(!m.context().logs().contains(&"do_cleanup"));
     }
 }
@@ -1429,31 +1714,43 @@ T105 {
 mod t10_6 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T106 {
-        context: TestCtx;
-        events: Ev;
-        default(Deep1);
-        entry: root_entry;
-        exit: root_exit;
-        on(after Duration::from_secs(60)) => FirstState;
-        state Deep1 {
-            default(Deep2);
-            exit: d1_exit;
-            state Deep2 { exit: d2_exit; }
+    T106 {
+            context: TestCtx;
+            events: Ev;
+            default(Deep1);
+            entry: root_entry;
+            exit: root_exit;
+            on(after Duration::from_secs(60)) => FirstState;
+            state Deep1 {
+                default(Deep2);
+                exit: d1_exit;
+                state Deep2 { exit: d2_exit; }
+            }
+            state FirstState { entry: first_entry; }
         }
-        state FirstState { entry: first_entry; }
-    }
-    }
+        }
 
     impl T106Actions for T106ActionContext<'_> {
-        fn root_entry(&mut self) { self.log.push("root_entry".into()); }
-        fn root_exit(&mut self) { self.log.push("root_exit".into()); }
-        fn d1_exit(&mut self) { self.log.push("d1_exit".into()); }
-        fn d2_exit(&mut self) { self.log.push("d2_exit".into()); }
-        fn first_entry(&mut self) { self.log.push("first_entry".into()); }
+        fn root_entry(&mut self) {
+            self.log.push("root_entry".into());
+        }
+        fn root_exit(&mut self) {
+            self.log.push("root_exit".into());
+        }
+        fn d1_exit(&mut self) {
+            self.log.push("d1_exit".into());
+        }
+        fn d2_exit(&mut self) {
+            self.log.push("d2_exit".into());
+        }
+        fn first_entry(&mut self) {
+            self.log.push("first_entry".into());
+        }
     }
 
     #[test]
@@ -1474,20 +1771,24 @@ T106 {
 mod t10_7 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Halt }
+    pub enum Ev {
+        Halt,
+    }
 
     statechart! {
-T107 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        terminate(Halt);
-        state A { entry: a_e; }
-    }
-    }
+    T107 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            terminate(Halt);
+            state A { entry: a_e; }
+        }
+        }
 
     impl T107Actions for T107ActionContext<'_> {
-        fn a_e(&mut self) { self.log.push("hello".into()); }
+        fn a_e(&mut self) {
+            self.log.push("hello".into());
+        }
     }
 
     #[test]
@@ -1506,20 +1807,24 @@ T107 {
 mod t10_1 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Go }
+    pub enum Ev {
+        Go,
+    }
 
     statechart! {
-T101 {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A { entry: shared_setup; on(Go) => B; }
-        state B { entry: shared_setup; }
-    }
-    }
+    T101 {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A { entry: shared_setup; on(Go) => B; }
+            state B { entry: shared_setup; }
+        }
+        }
 
     impl T101Actions for T101ActionContext<'_> {
-        fn shared_setup(&mut self) { self.log.push("shared".into()); }
+        fn shared_setup(&mut self) {
+            self.log.push("shared".into());
+        }
     }
 
     #[test]
@@ -1536,20 +1841,24 @@ T101 {
 mod t8_1 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { _U }
+    pub enum Ev {
+        _U,
+    }
 
     statechart! {
-T81 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red { on(after Duration::from_secs(5)) => Green; }
-        state Green { entry: green_on; }
-    }
-    }
+    T81 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red { on(after Duration::from_secs(5)) => Green; }
+            state Green { entry: green_on; }
+        }
+        }
 
     impl T81Actions for T81ActionContext<'_> {
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
     }
 
     #[test]
@@ -1567,25 +1876,31 @@ T81 {
 mod t8_2 {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Interrupt }
+    pub enum Ev {
+        Interrupt,
+    }
 
     statechart! {
-T82 {
-        context: TestCtx;
-        events: Ev;
-        default(Red);
-        state Red {
-            on(after Duration::from_secs(5)) => Green;
-            on(Interrupt) => Yellow;
+    T82 {
+            context: TestCtx;
+            events: Ev;
+            default(Red);
+            state Red {
+                on(after Duration::from_secs(5)) => Green;
+                on(Interrupt) => Yellow;
+            }
+            state Green { entry: green_on; }
+            state Yellow { entry: yellow_on; }
         }
-        state Green { entry: green_on; }
-        state Yellow { entry: yellow_on; }
-    }
-    }
+        }
 
     impl T82Actions for T82ActionContext<'_> {
-        fn green_on(&mut self) { self.log.push("green_on".into()); }
-        fn yellow_on(&mut self) { self.log.push("yellow_on".into()); }
+        fn green_on(&mut self) {
+            self.log.push("green_on".into());
+        }
+        fn yellow_on(&mut self) {
+            self.log.push("yellow_on".into());
+        }
     }
 
     #[test]
@@ -1606,27 +1921,32 @@ T82 {
 mod b1_emit_or_panic {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo, Bar }
+    pub enum Ev {
+        Foo,
+        Bar,
+    }
 
     statechart! {
-B1M {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A {
-            on(Foo) => emit_bar;
-            on(Bar) => B;
+    B1M {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A {
+                on(Foo) => emit_bar;
+                on(Bar) => B;
+            }
+            state B { entry: b_entry; }
         }
-        state B { entry: b_entry; }
-    }
-    }
+        }
 
     impl B1MActions for B1MActionContext<'_> {
         fn emit_bar(&mut self) {
             self.log.push("emit_bar".into());
             self.emit_or_panic(Ev::Bar);
         }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
     }
 
     #[test]
@@ -1645,19 +1965,23 @@ B1M {
 mod b2_has_pending {
     use super::*;
     #[derive(Debug, Clone)]
-    pub enum Ev { Foo }
+    pub enum Ev {
+        Foo,
+    }
 
     statechart! {
-B2M {
-        context: TestCtx;
-        events: Ev;
-        default(A);
-        state A { on(Foo) => noop; }
-    }
-    }
+    B2M {
+            context: TestCtx;
+            events: Ev;
+            default(A);
+            state A { on(Foo) => noop; }
+        }
+        }
 
     impl B2MActions for B2MActionContext<'_> {
-        fn noop(&mut self) { self.log.push("noop".into()); }
+        fn noop(&mut self) {
+            self.log.push("noop".into());
+        }
     }
 
     #[test]
@@ -1677,17 +2001,21 @@ mod b5_no_events {
     use super::*;
 
     statechart! {
-B5M {
-        context: TestCtx;
-        default(A);
-        state A { on(after Duration::from_millis(100)) => B; exit: a_exit; }
-        state B { entry: b_entry; }
-    }
-    }
+    B5M {
+            context: TestCtx;
+            default(A);
+            state A { on(after Duration::from_millis(100)) => B; exit: a_exit; }
+            state B { entry: b_entry; }
+        }
+        }
 
     impl B5MActions for B5MActionContext<'_> {
-        fn a_exit(&mut self) { self.log.push("a_exit".into()); }
-        fn b_entry(&mut self) { self.log.push("b_entry".into()); }
+        fn a_exit(&mut self) {
+            self.log.push("a_exit".into());
+        }
+        fn b_entry(&mut self) {
+            self.log.push("b_entry".into());
+        }
     }
 
     #[test]

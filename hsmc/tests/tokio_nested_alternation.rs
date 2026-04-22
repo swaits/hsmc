@@ -89,9 +89,9 @@ async fn nested_alternation_survives_round_trip() {
     // Driver: exercise the full scenario, then halt.
     tokio::spawn(async move {
         // Let LM alternate with INFO for three cycles.
-        tokio::time::sleep(Duration::from_secs(5)).await;  // LM→INFO
-        tokio::time::sleep(Duration::from_secs(5)).await;  // INFO→LM
-        tokio::time::sleep(Duration::from_secs(5)).await;  // LM→INFO
+        tokio::time::sleep(Duration::from_secs(5)).await; // LM→INFO
+        tokio::time::sleep(Duration::from_secs(5)).await; // INFO→LM
+        tokio::time::sleep(Duration::from_secs(5)).await; // LM→INFO
 
         // Jump out to Listening. The machine will now tick every 1s
         // with a 20ms-await tick handler — the firmware's actual shape.
@@ -104,8 +104,8 @@ async fn nested_alternation_survives_round_trip() {
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // Regression: alternation must continue after re-entry.
-        tokio::time::sleep(Duration::from_secs(5)).await;  // LM→INFO
-        tokio::time::sleep(Duration::from_secs(5)).await;  // INFO→LM
+        tokio::time::sleep(Duration::from_secs(5)).await; // LM→INFO
+        tokio::time::sleep(Duration::from_secs(5)).await; // INFO→LM
 
         // Second round-trip to be sure it wasn't a one-off.
         let _ = sender.send(Ev::Go);
@@ -113,8 +113,8 @@ async fn nested_alternation_survives_round_trip() {
         let _ = sender.send(Ev::Back);
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        tokio::time::sleep(Duration::from_secs(5)).await;  // LM→INFO
-        tokio::time::sleep(Duration::from_secs(5)).await;  // INFO→LM
+        tokio::time::sleep(Duration::from_secs(5)).await; // LM→INFO
+        tokio::time::sleep(Duration::from_secs(5)).await; // INFO→LM
 
         let _ = sender.send(Ev::Halt);
     });
@@ -131,10 +131,10 @@ async fn nested_alternation_survives_round_trip() {
         &log[..],
         &[
             "LM", "INFO", "LM", "INFO",   // fresh-boot alternation ×3
-            "LISTEN",                      // Go #1
-            "LM", "INFO", "LM",            // Back #1 + two 5s ticks
-            "LISTEN",                      // Go #2
-            "LM", "INFO", "LM",            // Back #2 + two 5s ticks
+            "LISTEN", // Go #1
+            "LM", "INFO", "LM",     // Back #1 + two 5s ticks
+            "LISTEN", // Go #2
+            "LM", "INFO", "LM", // Back #2 + two 5s ticks
         ][..],
         "log did not match expected sequence: {:?}",
         &log[..]

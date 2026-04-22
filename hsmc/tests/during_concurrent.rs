@@ -79,6 +79,10 @@ async fn both_durings_compile_and_fast_fires() {
     // Fast (5ms period) wins its race consistently against slow (15ms).
     // This documents the starvation property: in select-drop semantics,
     // the faster during starves the slower one.
-    assert!(ctx.seen_fast >= 4, "expected fast ≥4, got {}", ctx.seen_fast);
+    assert!(
+        ctx.seen_fast >= 4,
+        "expected fast ≥4, got {}",
+        ctx.seen_fast
+    );
     assert_eq!(ctx.fast_field, ctx.seen_fast);
 }

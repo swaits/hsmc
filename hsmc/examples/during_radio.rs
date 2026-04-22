@@ -23,6 +23,12 @@ pub struct SimRadio {
     tx_pending: bool,
 }
 
+impl Default for SimRadio {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SimRadio {
     pub fn new() -> Self {
         Self {
@@ -55,6 +61,12 @@ pub struct Ctx {
     pub rx_buf: [u8; 64],
     pub stats: RadioStats,
     pub last_payload: heapless::Vec<u8, 64>,
+}
+
+impl Default for Ctx {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Ctx {

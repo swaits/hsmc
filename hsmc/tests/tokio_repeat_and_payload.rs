@@ -74,7 +74,7 @@ async fn repeating_timer_fires_many_times() {
     // 10ms timer running for ~120ms should fire at least 5 times. We give
     // loose bounds to tolerate scheduler jitter under `cargo test`.
     assert!(
-        ticks >= 5 && ticks <= 30,
+        (5..=30).contains(&ticks),
         "expected 5..=30 ticks, got {}",
         ticks
     );
@@ -108,8 +108,5 @@ async fn struct_variant_payload_binding_dispatches() {
     });
     let _ = tokio::time::timeout(Duration::from_secs(2), m.run()).await;
     let ctx = m.into_context();
-    assert_eq!(
-        *ctx.last_cfg.lock().unwrap(),
-        Some((915_000_000, 125_000))
-    );
+    assert_eq!(*ctx.last_cfg.lock().unwrap(), Some((915_000_000, 125_000)));
 }

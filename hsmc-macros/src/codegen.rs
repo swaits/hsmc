@@ -154,7 +154,7 @@ fn render_state(
     out.push('\n');
     let child_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
     // Entry actions
-    for (_i, aid) in s.entries.iter().enumerate() {
+    for aid in &s.entries {
         let name = &ir.actions[*aid as usize].name;
         out.push_str(&child_prefix);
         out.push_str("• entry: ");
@@ -289,7 +289,8 @@ fn emit_embassy_race_arms_with_channel(ir: &Ir) -> Vec<TokenStream> {
         let (sel_fn, variants) = embassy_select_for_arity(n + 2);
         let ch_variant = &variants[n];
         let tm_variant = &variants[n + 1];
-        let call_args = binds.iter()
+        let call_args = binds
+            .iter()
             .map(|b| quote! { #b })
             .chain(std::iter::once(quote! { rx.receive() }))
             .chain(std::iter::once(quote! { timer_fut }));
@@ -352,7 +353,8 @@ fn emit_embassy_race_arms_timer_only(ir: &Ir) -> Vec<TokenStream> {
         }
         let (binds, stmts) = emit_during_bindings(&chain);
         let (sel_fn, variants) = embassy_select_for_arity(n + 1);
-        let call_args = binds.iter()
+        let call_args = binds
+            .iter()
             .map(|b| quote! { #b })
             .chain(std::iter::once(quote! { timer_fut }));
         let either_path = if n + 1 == 2 {
@@ -412,203 +414,275 @@ pub fn generate(ir: &Ir) -> TokenStream {
         .map(|s| s.name.clone())
         .collect();
 
-    let entries_of_arms: Vec<_> = ir.states.iter().map(|s| {
-        let sid = s.id;
-        let entries_tok: Vec<_> = s.entries.iter().map(|a| quote! { #a }).collect();
-        quote! { #sid => &[#(#entries_tok),*], }
-    }).collect();
-    let exits_of_arms: Vec<_> = ir.states.iter().map(|s| {
-        let sid = s.id;
-        let exits_tok: Vec<_> = s.exits.iter().map(|a| quote! { #a }).collect();
-        quote! { #sid => &[#(#exits_tok),*], }
-    }).collect();
+    let entries_of_arms: Vec<_> = ir
+        .states
+        .iter()
+        .map(|s| {
+            let sid = s.id;
+            let entries_tok: Vec<_> = s.entries.iter().map(|a| quote! { #a }).collect();
+            quote! { #sid => &[#(#entries_tok),*], }
+        })
+        .collect();
+    let exits_of_arms: Vec<_> = ir
+        .states
+        .iter()
+        .map(|s| {
+            let sid = s.id;
+            let exits_tok: Vec<_> = s.exits.iter().map(|a| quote! { #a }).collect();
+            quote! { #sid => &[#(#exits_tok),*], }
+        })
+        .collect();
 
-    let parent_table = ir.states.iter().map(|s| match s.parent {
-        Some(p) => quote! { Some(#p) },
-        None => quote! { None },
-    }).collect::<Vec<_>>();
-    let depth_table = ir.states.iter().map(|s| {
-        let d = s.depth;
-        quote! { #d }
-    }).collect::<Vec<_>>();
-    let default_child_table = ir.states.iter().map(|s| match s.default_child {
-        Some(c) => quote! { Some(#c) },
-        None => quote! { None },
-    }).collect::<Vec<_>>();
-    let state_id_to_variant_arms = ir.states.iter().filter(|s| s.parent.is_some()).map(|s| {
-        let id = s.id;
-        let nm = &s.name;
-        quote! { #id => #state_enum_name::#nm, }
-    }).collect::<Vec<_>>();
+    let parent_table = ir
+        .states
+        .iter()
+        .map(|s| match s.parent {
+            Some(p) => quote! { Some(#p) },
+            None => quote! { None },
+        })
+        .collect::<Vec<_>>();
+    let depth_table = ir
+        .states
+        .iter()
+        .map(|s| {
+            let d = s.depth;
+            quote! { #d }
+        })
+        .collect::<Vec<_>>();
+    let default_child_table = ir
+        .states
+        .iter()
+        .map(|s| match s.default_child {
+            Some(c) => quote! { Some(#c) },
+            None => quote! { None },
+        })
+        .collect::<Vec<_>>();
+    let state_id_to_variant_arms = ir
+        .states
+        .iter()
+        .filter(|s| s.parent.is_some())
+        .map(|s| {
+            let id = s.id;
+            let nm = &s.name;
+            quote! { #id => #state_enum_name::#nm, }
+        })
+        .collect::<Vec<_>>();
     // Trait methods, possibly with typed params for payload-bearing actions.
-    let action_methods_sync = ir.actions.iter().map(|a| {
-        let name = &a.name;
-        let params = a.params.iter().map(|f| {
-            let n = &f.name;
-            let t = &f.ty;
-            quote! { #n: #t }
-        });
-        quote! { fn #name(&mut self, #(#params),*); }
-    }).collect::<Vec<_>>();
-    let action_methods_async = ir.actions.iter().map(|a| {
-        let name = &a.name;
-        let params = a.params.iter().map(|f| {
-            let n = &f.name;
-            let t = &f.ty;
-            quote! { #n: #t }
-        });
-        quote! {
-            fn #name(&mut self, #(#params),*) -> impl ::core::future::Future<Output = ()>;
-        }
-    }).collect::<Vec<_>>();
+    let action_methods_sync = ir
+        .actions
+        .iter()
+        .map(|a| {
+            let name = &a.name;
+            let params = a.params.iter().map(|f| {
+                let n = &f.name;
+                let t = &f.ty;
+                quote! { #n: #t }
+            });
+            quote! { fn #name(&mut self, #(#params),*); }
+        })
+        .collect::<Vec<_>>();
+    let action_methods_async = ir
+        .actions
+        .iter()
+        .map(|a| {
+            let name = &a.name;
+            let params = a.params.iter().map(|f| {
+                let n = &f.name;
+                let t = &f.ty;
+                quote! { #n: #t }
+            });
+            quote! {
+                fn #name(&mut self, #(#params),*) -> impl ::core::future::Future<Output = ()>;
+            }
+        })
+        .collect::<Vec<_>>();
 
     // Dispatch arms: for unit-signature actions call straight through; for
     // payload-bearing actions, re-match on the passed event and destructure.
     // Payload dispatch binds each field by reference (scrutinee is `&Ev`)
     // then `.clone()`s it to produce an owned value matching the handler's
     // declared signature. For `Copy` types this optimizes away.
-    let run_action_arms_sync = ir.actions.iter().enumerate().map(|(i, a)| {
-        let i = i as u16;
-        let name = &a.name;
-        if a.params.is_empty() {
-            quote! { #i => <Ctx as #actions_trait_name>::#name(ctx), }
-        } else {
-            let field_idents: Vec<_> = a.params.iter().map(|f| f.name.clone()).collect();
-            let clone_args = field_idents.iter().map(|n| quote! { #n.clone() });
-            let variant_arms = a.bound_variants.iter().map(|bv| {
-                let vname = &bv.name;
-                let binds = &field_idents;
-                let call = {
-                    let clones = clone_args.clone();
-                    quote! { <Ctx as #actions_trait_name>::#name(ctx, #(#clones),*); }
-                };
-                match bv.kind {
-                    PayloadKind::Tuple => quote! {
-                        #ev_ty::#vname(#(#binds),*) => { #call }
-                    },
-                    PayloadKind::Struct => quote! {
-                        #ev_ty::#vname { #(#binds),* } => { #call }
-                    },
-                }
-            });
-            quote! {
-                #i => {
-                    if let Some(__ev) = __event {
-                        match __ev {
-                            #(#variant_arms)*
-                            _ => {}
+    let run_action_arms_sync = ir
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let i = i as u16;
+            let name = &a.name;
+            if a.params.is_empty() {
+                quote! { #i => <Ctx as #actions_trait_name>::#name(ctx), }
+            } else {
+                let field_idents: Vec<_> = a.params.iter().map(|f| f.name.clone()).collect();
+                let clone_args = field_idents.iter().map(|n| quote! { #n.clone() });
+                let variant_arms = a.bound_variants.iter().map(|bv| {
+                    let vname = &bv.name;
+                    let binds = &field_idents;
+                    let call = {
+                        let clones = clone_args.clone();
+                        quote! { <Ctx as #actions_trait_name>::#name(ctx, #(#clones),*); }
+                    };
+                    match bv.kind {
+                        PayloadKind::Tuple => quote! {
+                            #ev_ty::#vname(#(#binds),*) => { #call }
+                        },
+                        PayloadKind::Struct => quote! {
+                            #ev_ty::#vname { #(#binds),* } => { #call }
+                        },
+                    }
+                });
+                quote! {
+                    #i => {
+                        if let Some(__ev) = __event {
+                            match __ev {
+                                #(#variant_arms)*
+                                _ => {}
+                            }
                         }
                     }
                 }
             }
-        }
-    }).collect::<Vec<_>>();
-    let run_action_arms_async = ir.actions.iter().enumerate().map(|(i, a)| {
-        let i = i as u16;
-        let name = &a.name;
-        if a.params.is_empty() {
-            quote! { #i => <Ctx as #actions_trait_name>::#name(ctx).await, }
-        } else {
-            let field_idents: Vec<_> = a.params.iter().map(|f| f.name.clone()).collect();
-            let clone_args = field_idents.iter().map(|n| quote! { #n.clone() });
-            let variant_arms = a.bound_variants.iter().map(|bv| {
-                let vname = &bv.name;
-                let binds = &field_idents;
-                let call = {
-                    let clones = clone_args.clone();
-                    quote! { <Ctx as #actions_trait_name>::#name(ctx, #(#clones),*).await; }
-                };
-                match bv.kind {
-                    PayloadKind::Tuple => quote! {
-                        #ev_ty::#vname(#(#binds),*) => { #call }
-                    },
-                    PayloadKind::Struct => quote! {
-                        #ev_ty::#vname { #(#binds),* } => { #call }
-                    },
-                }
-            });
-            quote! {
-                #i => {
-                    if let Some(__ev) = __event {
-                        match __ev {
-                            #(#variant_arms)*
-                            _ => {}
+        })
+        .collect::<Vec<_>>();
+    let run_action_arms_async = ir
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let i = i as u16;
+            let name = &a.name;
+            if a.params.is_empty() {
+                quote! { #i => <Ctx as #actions_trait_name>::#name(ctx).await, }
+            } else {
+                let field_idents: Vec<_> = a.params.iter().map(|f| f.name.clone()).collect();
+                let clone_args = field_idents.iter().map(|n| quote! { #n.clone() });
+                let variant_arms = a.bound_variants.iter().map(|bv| {
+                    let vname = &bv.name;
+                    let binds = &field_idents;
+                    let call = {
+                        let clones = clone_args.clone();
+                        quote! { <Ctx as #actions_trait_name>::#name(ctx, #(#clones),*).await; }
+                    };
+                    match bv.kind {
+                        PayloadKind::Tuple => quote! {
+                            #ev_ty::#vname(#(#binds),*) => { #call }
+                        },
+                        PayloadKind::Struct => quote! {
+                            #ev_ty::#vname { #(#binds),* } => { #call }
+                        },
+                    }
+                });
+                quote! {
+                    #i => {
+                        if let Some(__ev) = __event {
+                            match __ev {
+                                #(#variant_arms)*
+                                _ => {}
+                            }
                         }
                     }
                 }
             }
-        }
-    }).collect::<Vec<_>>();
-    let duration_expr_arms = ir.duration_triggers.iter().enumerate().map(|(i, d)| {
-        let i = i as u16;
-        let expr = &d.expr;
-        quote! { #i => { let __d: ::hsmc::Duration = #expr; __d }, }
-    }).collect::<Vec<_>>();
-    let duration_repeat_arms = ir.duration_triggers.iter().enumerate().map(|(i, d)| {
-        let i = i as u16;
-        let repeat = d.repeat;
-        quote! { #i => #repeat, }
-    }).collect::<Vec<_>>();
-    let event_variant_arms = ir.event_variants.iter().enumerate().map(|(i, v)| {
-        let i = i as u16;
-        let name = &v.name;
-        let pat = match v.kind {
-            VariantKind::Unit => quote! { #ev_ty::#name },
-            VariantKind::Tuple => quote! { #ev_ty::#name(..) },
-            VariantKind::Struct => quote! { #ev_ty::#name { .. } },
-        };
-        quote! { #pat => #i, }
-    }).collect::<Vec<_>>();
-    let state_handler_arms = ir.states.iter().map(|s| {
-        use std::collections::BTreeMap;
-        #[derive(Default)]
-        struct Group { action_ids: Vec<u16>, transition_target: Option<u16> }
-        let mut groups: BTreeMap<(u8, u16), Group> = BTreeMap::new();
-        let mut handlers = s.handlers.iter().collect::<Vec<_>>();
-        handlers.sort_by_key(|h| h.decl_index);
-        for h in handlers {
-            let key = match &h.trigger {
-                TriggerIr::Event(id, _, _) => (0u8, *id),
-                TriggerIr::Duration(id) => (1u8, *id),
+        })
+        .collect::<Vec<_>>();
+    let duration_expr_arms = ir
+        .duration_triggers
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let i = i as u16;
+            let expr = &d.expr;
+            quote! { #i => { let __d: ::hsmc::Duration = #expr; __d }, }
+        })
+        .collect::<Vec<_>>();
+    let duration_repeat_arms = ir
+        .duration_triggers
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let i = i as u16;
+            let repeat = d.repeat;
+            quote! { #i => #repeat, }
+        })
+        .collect::<Vec<_>>();
+    let event_variant_arms = ir
+        .event_variants
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let i = i as u16;
+            let name = &v.name;
+            let pat = match v.kind {
+                VariantKind::Unit => quote! { #ev_ty::#name },
+                VariantKind::Tuple => quote! { #ev_ty::#name(..) },
+                VariantKind::Struct => quote! { #ev_ty::#name { .. } },
             };
-            let g = groups.entry(key).or_default();
-            match &h.kind {
-                HandlerKindIr::Action(aid, _) => g.action_ids.push(*aid),
-                HandlerKindIr::Transition(_, Some(tid)) => g.transition_target = Some(*tid),
-                HandlerKindIr::Transition(_, None) => {}
+            quote! { #pat => #i, }
+        })
+        .collect::<Vec<_>>();
+    let state_handler_arms = ir
+        .states
+        .iter()
+        .map(|s| {
+            use std::collections::BTreeMap;
+            #[derive(Default)]
+            struct Group {
+                action_ids: Vec<u16>,
+                transition_target: Option<u16>,
             }
-        }
-        let sid = s.id;
-        let inner_arms = groups.iter().map(|((kind, tid), g)| {
-            let kind = *kind;
-            let tid = *tid;
-            let actions = g.action_ids.iter().map(|a| quote! { #a });
-            let transition_tok = match g.transition_target {
-                Some(t) => quote! { Some(#t) },
-                None => quote! { None },
-            };
+            let mut groups: BTreeMap<(u8, u16), Group> = BTreeMap::new();
+            let mut handlers = s.handlers.iter().collect::<Vec<_>>();
+            handlers.sort_by_key(|h| h.decl_index);
+            for h in handlers {
+                let key = match &h.trigger {
+                    TriggerIr::Event(id, _, _) => (0u8, *id),
+                    TriggerIr::Duration(id) => (1u8, *id),
+                };
+                let g = groups.entry(key).or_default();
+                match &h.kind {
+                    HandlerKindIr::Action(aid, _) => g.action_ids.push(*aid),
+                    HandlerKindIr::Transition(_, Some(tid)) => g.transition_target = Some(*tid),
+                    HandlerKindIr::Transition(_, None) => {}
+                }
+            }
+            let sid = s.id;
+            let inner_arms = groups
+                .iter()
+                .map(|((kind, tid), g)| {
+                    let kind = *kind;
+                    let tid = *tid;
+                    let actions = g.action_ids.iter().map(|a| quote! { #a });
+                    let transition_tok = match g.transition_target {
+                        Some(t) => quote! { Some(#t) },
+                        None => quote! { None },
+                    };
+                    quote! {
+                        (#kind, #tid) => {
+                            let actions: &'static [u16] = &[#(#actions),*];
+                            let target: Option<u16> = #transition_tok;
+                            return Some((actions, target));
+                        }
+                    }
+                })
+                .collect::<Vec<_>>();
             quote! {
-                (#kind, #tid) => {
-                    let actions: &'static [u16] = &[#(#actions),*];
-                    let target: Option<u16> = #transition_tok;
-                    return Some((actions, target));
+                #sid => {
+                    match (trigger_kind, trigger_id) {
+                        #(#inner_arms)*
+                        _ => {}
+                    }
                 }
             }
-        }).collect::<Vec<_>>();
-        quote! {
-            #sid => {
-                match (trigger_kind, trigger_id) {
-                    #(#inner_arms)*
-                    _ => {}
-                }
-            }
-        }
-    }).collect::<Vec<_>>();
-    let owned_timers_arms = ir.states.iter().map(|s| {
-        let sid = s.id;
-        let ids = s.owned_timers.iter().map(|t| quote! { #t });
-        quote! { #sid => &[#(#ids),*], }
-    }).collect::<Vec<_>>();
+        })
+        .collect::<Vec<_>>();
+    let owned_timers_arms = ir
+        .states
+        .iter()
+        .map(|s| {
+            let sid = s.id;
+            let ids = s.owned_timers.iter().map(|t| quote! { #t });
+            quote! { #sid => &[#(#ids),*], }
+        })
+        .collect::<Vec<_>>();
     let terminate_match = if let Some(tev) = &ir.terminate_event {
         // Use the kind recorded for this variant (unit/tuple/struct).
         let kind = ir

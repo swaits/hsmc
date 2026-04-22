@@ -176,7 +176,10 @@ fn parse_body(input: ParseStream, is_root: bool) -> syn::Result<StateBody> {
                     let ty: Type = input.parse()?;
                     input.parse::<Token![;]>()?;
                     if !is_root {
-                        return Err(syn::Error::new(ident.span(), "`context:` is only valid at root"));
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "`context:` is only valid at root",
+                        ));
                     }
                     body.context_ty = Some(ty);
                 }
@@ -186,7 +189,10 @@ fn parse_body(input: ParseStream, is_root: bool) -> syn::Result<StateBody> {
                     let ty: Type = input.parse()?;
                     input.parse::<Token![;]>()?;
                     if !is_root {
-                        return Err(syn::Error::new(ident.span(), "`events:` is only valid at root"));
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "`events:` is only valid at root",
+                        ));
                     }
                     body.event_ty = Some(ty);
                 }
@@ -290,10 +296,17 @@ fn parse_body(input: ParseStream, is_root: bool) -> syn::Result<StateBody> {
                     let content;
                     braced!(content in input);
                     let cbody = parse_body(&content, false)?;
-                    body.children.push(StateDecl { name: sname.clone(), body: cbody, span: sname.span() });
+                    body.children.push(StateDecl {
+                        name: sname.clone(),
+                        body: cbody,
+                        span: sname.span(),
+                    });
                 }
                 other => {
-                    return Err(syn::Error::new(ident.span(), format!("unknown item `{}` in statechart body", other)));
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown item `{}` in statechart body", other),
+                    ));
                 }
             }
         } else {
@@ -423,7 +436,12 @@ fn parse_duration_rest(input: ParseStream, repeat: bool) -> syn::Result<Trigger>
         }
     }
     let key = expr_to_string(&expr);
-    Ok(Trigger::Duration { expr, key, span, repeat })
+    Ok(Trigger::Duration {
+        expr,
+        key,
+        span,
+        repeat,
+    })
 }
 
 fn expr_to_string(e: &Expr) -> String {
