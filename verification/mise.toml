@@ -1,0 +1,42 @@
+# mise configuration for the Creusot verification subcrate.
+#
+# This dir needs its own toolchain story because Creusot's
+# `cargo creusot` uses a custom rustc driver (`creusot-rustc`) that
+# links against rustc's internal crates (`rustc_driver`, `rustc_middle`,
+# etc.) — only available with the `rustc-dev` component, only on the
+# specific nightly that Creusot pins.
+#
+# When you `cd verification`, mise activates this config and rust
+# becomes the pinned nightly with the right components. `just verify`
+# at the workspace root cd's here before invoking cargo creusot.
+#
+# Pinned to v0.9.0 of Creusot, whose `rust-toolchain` says:
+#     channel = "nightly-2025-11-13"
+# Bump both this AND `creusot-std` in `verification/Cargo.toml` AND
+# the `CREUSOT_PIN` in `justfile` together when upgrading Creusot.
+
+[tools]
+
+# ── Rust toolchain pinned for Creusot v0.9.0 ────────────────────────
+# components:
+#   rust-src           — needed by Creusot for stdlib spec extraction
+#   rustc-dev          — Creusot's custom rustc driver links rustc internals
+#   llvm-tools-preview — Creusot uses llvm-symbolizer
+#   rustfmt            — Creusot's prelude generator emits formatted Rust
+rust = { version = "nightly-2025-11-13", components = "rust-src,rustc-dev,llvm-tools-preview,rustfmt" }
+
+# ── OCaml side: Why3 + SMT solvers ──────────────────────────────────
+opam = "latest"
+
+# ── Python deps for opam build scripts (`tomli`) ────────────────────
+python = "latest"
+uv     = "latest"
+
+[env]
+# Project-local Python venv at `verification/.venv`, auto-created on
+# first `mise install` via uv. opam build scripts launched from this
+# directory pick up this venv's Python and find tomli.
+_.python.venv = { path = ".venv", create = true }
+
+[settings]
+trusted_config_paths = ["{{ config_root }}"]

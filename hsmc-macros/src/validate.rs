@@ -25,12 +25,17 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
     // Resolve transitions: done already? We need post-build resolution.
     // We'll do it here because we need IR mutable; but we're given &Ir.
     // Instead perform target lookup inline.
-    let name_map: HashMap<String, u16> = ir
+    let mut name_map: HashMap<String, u16> = ir
         .states
         .iter()
         .filter(|s| s.name != "__Root")
         .map(|s| (s.name.to_string(), s.id))
         .collect();
+    // Per spec: the root state is targetable as a transition destination
+    // by the chart's own name.
+    if let Some(root) = ir.states.iter().find(|s| s.parent.is_none()) {
+        name_map.insert(ir.name.to_string(), root.id);
+    }
 
     for s in &ir.states {
         // Empty state (not root). A state with a `during:` is not empty —

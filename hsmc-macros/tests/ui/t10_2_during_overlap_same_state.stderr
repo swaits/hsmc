@@ -3,15 +3,3 @@ error: field `a` is borrowed by two concurrent durings on state `S` (`one` and `
    |
 21 |         during: two(a);
    |                     ^
-
-error[E0405]: cannot find trait `MActions` in this scope
-  --> tests/ui/t10_2_during_overlap_same_state.rs:29:6
-   |
-29 | impl MActions for MActionContext<'_> {}
-   |      ^^^^^^^^ not found in this scope
-
-error[E0425]: cannot find type `MActionContext` in this scope
-  --> tests/ui/t10_2_during_overlap_same_state.rs:29:19
-   |
-29 | impl MActions for MActionContext<'_> {}
-   |                   ^^^^^^^^^^^^^^ not found in this scope

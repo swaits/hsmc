@@ -1,5 +1,18 @@
-# justfile for the hsmc workspace (hsmc + hsmc-macros)
-# High-level development and CI workflows
+# justfile for the hsmc workspace (hsmc + hsmc-macros + verification)
+# High-level development and CI workflows.
+#
+# All recipes run inside `mise exec` so mise-managed tools (Rust with
+# components + embedded targets, opam, cargo subcommands, the
+# project's `.venv/`) are automatically on PATH. No `mise activate`
+# needed; no per-recipe wrappers; no shebangs.
+#
+# Two settings, both routed through `mise exec --`:
+#   set shell              — used per line for short recipes
+#   set script-interpreter — used for `[script]` recipes that need
+#                            multi-line state (loops, branches, etc.)
+
+set shell              := ["mise", "exec", "--", "sh", "-cu"]
+set script-interpreter := ["mise", "exec", "--", "sh", "-eu"]
 
 # =============================================================================
 # Configuration
@@ -25,9 +38,8 @@ default:
 # =============================================================================
 
 # Quick development loop: format + lint + fast tests (default features only)
+[script]
 dev:
-    #!/usr/bin/env bash
-    set -e
     echo "🔄 Running development checks..."
     cargo fmt
     RUSTFLAGS="{{rustflags}}" cargo clippy --workspace --all-targets &
@@ -69,10 +81,8 @@ pre-push: check test coverage
     @echo "✅ Pre-push checks passed - safe to push!"
 
 # Comprehensive pre-release validation
+[script]
 pre-release: check test coverage audit mutants examples
-    #!/usr/bin/env bash
-    set -e
-
     # Verify documentation version matches crate version
     echo ""
     echo "📋 Verifying documentation version..."
@@ -138,10 +148,120 @@ audit:
     cargo audit
     @echo "✅ Security checks passed"
 
-# Run Miri for UB detection (default features only; tokio/embassy rely on runtime primitives Miri does not support)
+# Run Miri for UB detection (auto-installs nightly + miri component if missing).
+[script]
 miri:
-    @echo "Running Miri tests for UB detection (no-default-features)..."
+    if ! rustup toolchain list 2>/dev/null | grep -q '^nightly'; then
+        echo "  → installing nightly toolchain..."
+        rustup toolchain install nightly --component miri,rust-src --profile minimal
+    elif ! rustup component list --toolchain nightly --installed 2>/dev/null | grep -q '^miri'; then
+        echo "  → adding miri component to nightly..."
+        rustup component add miri --toolchain nightly
+    fi
+    echo "Running Miri tests for UB detection (no-default-features)..."
     cargo +nightly miri test --workspace --no-default-features
+
+# Run Creusot deductive verification (self-installs opam, Why3, SMT solvers, cargo-creusot on first run).
+[script]
+verify:
+    printf '🔍 Setting up Creusot verification stack...\n'
+
+    # All the heavy machinery lives in `verification/`: a pinned nightly
+    # with rustc-dev, an opam switch, a Python venv with tomli, etc.
+    # `verification/mise.toml` declares it all. cd in, then re-eval mise
+    # env so opam/uv/python/cargo on PATH are the verification ones.
+    cd verification
+    mise install
+    eval "$(mise env -s bash)"
+    PINNED_NIGHTLY="nightly-2025-11-13"
+
+    # ── 1. opam init + switch (one-time) ─────────────────────────────
+    # `--no-depexts` everywhere: opam's system-package check would ask
+    # for things like `python-tomli` that need sudo on Arch. We supply
+    # those via mise's project-local Python venv (with tomli pip-installed).
+    if [ ! -d "$HOME/.opam" ]; then
+        printf '  → initializing opam (one-time, ~2 min)...\n'
+        opam init --yes --disable-sandboxing --bare --no-depexts
+    fi
+    if ! opam switch list -s 2>/dev/null | grep -qx 'hsmc-creusot'; then
+        printf '  → creating opam switch hsmc-creusot with OCaml 5.x (~5 min)...\n'
+        opam switch create hsmc-creusot 5.2.0 --yes --no-depexts
+    fi
+    eval "$(opam env --switch=hsmc-creusot --set-switch)"
+
+    # ── 2. Python deps for opam build scripts (`tomli`) ──────────────
+    # mise's `_.python.venv` auto-created `.venv/` here via uv, so the
+    # venv has no pip — use `uv pip install` directly into $VIRTUAL_ENV.
+    printf '  → uv pip install -r requirements.txt...\n'
+    uv pip install --quiet -r requirements.txt
+
+    # ── 3. Why3 + SMT solvers via opam (idempotent) ──────────────────
+    # alt-ergo + z3 cover the vast majority of Creusot proofs. cvc5
+    # opam build needs system GMP (sudo pacman -S gmp on Arch).
+    NEED=""
+    command -v why3 >/dev/null 2>&1     || NEED="$NEED why3"
+    command -v alt-ergo >/dev/null 2>&1 || NEED="$NEED alt-ergo"
+    command -v z3 >/dev/null 2>&1       || NEED="$NEED z3"
+    if [ -n "$NEED" ]; then
+        printf '  → opam install %s (slow — builds from source)...\n' "$NEED"
+        # shellcheck disable=SC2086
+        opam install --yes --no-depexts $NEED
+    fi
+
+    # ── 4. why3 config detect (registers solvers with Why3) ──────────
+    if [ ! -f "$HOME/.why3.conf" ]; then
+        printf '  → registering solvers with Why3...\n'
+        why3 config detect
+    fi
+
+    # ── 5. Clone Creusot source + run canonical INSTALL ──────────────
+    # creusot-install assumes it's running INSIDE the source tree (it
+    # invokes `cargo run --bin prelude-generator` etc.). Clone, cd, run.
+    # The pinned nightly comes from verification/mise.toml so cargo here
+    # resolves to it directly — no RUSTUP_TOOLCHAIN gymnastics needed.
+    CREUSOT_PIN="v0.9.0"
+    CREUSOT_SRC="$HOME/.local/share/hsmc-verify/creusot-${CREUSOT_PIN}"
+    CREUSOT_INSTALLED="$HOME/.local/share/creusot/why3find.json"
+    if [ ! -d "$CREUSOT_SRC/.git" ]; then
+        printf '  → git clone creusot @ %s...\n' "$CREUSOT_PIN"
+        mkdir -p "$(dirname "$CREUSOT_SRC")"
+        git clone --depth 1 --branch "$CREUSOT_PIN" \
+            https://github.com/creusot-rs/creusot "$CREUSOT_SRC"
+    fi
+    if [ ! -f "$CREUSOT_INSTALLED" ]; then
+        printf '  → running creusot ./INSTALL (~5 min — builds creusot-rustc)...\n'
+        # `RUSTUP_TOOLCHAIN` forces the cloned source's cargo to use the
+        # exact nightly mise pinned for verification/, regardless of what
+        # the source's own `rust-toolchain` file says (they should match,
+        # but be explicit).
+        ( cd "$CREUSOT_SRC" && RUSTUP_TOOLCHAIN="$PINNED_NIGHTLY" cargo run --release --bin creusot-install )
+    fi
+
+    # ── 6. Run the actual verification ───────────────────────────────
+    # We're already cd'd into verification/. mise env set rust to the
+    # pinned nightly.
+    #
+    # Two phases:
+    #   `cargo creusot`        — Rust → Coma IR, dumped into verif/
+    #   `cargo creusot prove`  — Why3 + SMT solvers discharge VCs
+    #
+    # `prove` exits non-zero when any VC is unproven. We don't `set -e`
+    # past it — unproven VCs are the engineering work, not a hard
+    # error. The exit status is reported at the end.
+    printf '\n🚀 cargo creusot (generate Coma IR)...\n'
+    cargo creusot
+    printf '\n🚀 cargo creusot prove (discharge VCs via Why3)...\n'
+    set +e
+    cargo creusot prove
+    PROVE_RC=$?
+    set -e
+    if [ "$PROVE_RC" -eq 0 ]; then
+        printf '\n✅ All VCs discharged. See INVARIANTS.md for the rule mapping.\n'
+    else
+        printf '\n⚠ Some VCs unproven (cargo creusot prove exit %d).\n' "$PROVE_RC"
+        printf '  Iterate on contracts in src/event_queue.rs / src/timer_table.rs.\n'
+        printf '  Run `cargo creusot prove` directly from verification/ for tighter loop.\n'
+    fi
 
 # =============================================================================
 # Documentation & Utilities

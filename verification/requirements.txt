@@ -1,0 +1,11 @@
+# Python packages opam pulls in via build scripts when installing the
+# Creusot stack (Why3 + alt-ergo + z3 + cvc5). These get installed into
+# the project-local `.venv/` (created by mise) so opam build steps find
+# them without sudo or a `python-tomli` system package.
+#
+# `just verify` runs `uv pip install -r verification/requirements.txt`
+# once per first run; subsequent runs are no-ops.
+#
+# When a new opam package fails with "No module named X", add X here.
+
+tomli       # why3 build configuration parsing

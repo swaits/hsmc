@@ -28,6 +28,13 @@ pub struct StateBody {
     /// split borrow on the generated `select` call site; the macro emits a
     /// clearer error when it can detect overlap at expansion time.
     pub durings: Vec<During>,
+    /// `trace;` — root-only flag. When set, codegen injects calls to
+    /// `::hsmc::__chart_trace!(...)` at every state entry, state exit,
+    /// action dispatch, and transition. The runtime backend (defmt /
+    /// log / tracing / no-op) is selected by which `hsmc/trace-*` cargo
+    /// feature the user enables in their `Cargo.toml`. Off by default,
+    /// fully zero-cost when off.
+    pub trace_enabled: bool,
 }
 
 impl StateBody {
@@ -45,6 +52,7 @@ impl StateBody {
             handlers: Vec::new(),
             children: Vec::new(),
             durings: Vec::new(),
+            trace_enabled: false,
         }
     }
 }
@@ -195,6 +203,23 @@ fn parse_body(input: ParseStream, is_root: bool) -> syn::Result<StateBody> {
                         ));
                     }
                     body.event_ty = Some(ty);
+                }
+                "trace" => {
+                    let _: Ident = input.parse()?;
+                    input.parse::<Token![;]>()?;
+                    if !is_root {
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "`trace;` is only valid at root",
+                        ));
+                    }
+                    if body.trace_enabled {
+                        return Err(syn::Error::new(
+                            ident.span(),
+                            "duplicate `trace;` declaration",
+                        ));
+                    }
+                    body.trace_enabled = true;
                 }
                 "entry" => {
                     let _: Ident = input.parse()?;

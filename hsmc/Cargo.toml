@@ -17,6 +17,22 @@ exclude = ["examples/microwave_tui.rs"]
 default = []
 tokio = ["dep:tokio"]
 embassy = ["dep:embassy-sync", "dep:embassy-time", "dep:embassy-futures"]
+# Auto-tracing backends — pick at most one. When the user opts a chart
+# into `trace;`, the macro emits calls to an internal dispatcher that
+# routes to whichever backend is enabled here. With NO backend feature
+# enabled, `trace;` is a no-op (zero overhead). Enabling more than one
+# backend produces a duplicate-macro compile error — that's intentional.
+trace-defmt   = ["dep:defmt"]
+trace-log     = ["dep:log"]
+trace-tracing = ["dep:tracing"]
+# Journaling backend. When enabled, the macro emits calls into an
+# in-memory journal recording every observable atom: entries, exits,
+# action invocations, during start/cancel, timer arm/cancel/fire, emits,
+# event delivery, transitions, and termination. Used to make charts
+# replay-deterministic and to catch semantic regressions in CI.
+# Requires `alloc` (the journal grows dynamically). Off by default —
+# zero overhead and no `alloc` requirement when not enabled.
+journal       = []
 
 [dependencies]
 hsmc-macros = { path = "../hsmc-macros", version = "0.2.0" }
@@ -25,6 +41,9 @@ tokio = { version = "1", features = ["sync", "time", "rt", "macros"], optional =
 embassy-sync = { version = "0.8", optional = true }
 embassy-time = { version = "0.5", optional = true }
 embassy-futures = { version = "0.1", optional = true }
+defmt = { version = "0.3", optional = true }
+log = { version = "0.4", optional = true }
+tracing = { version = "0.1", default-features = false, optional = true }
 
 [target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dev-dependencies]
 trybuild = "1"

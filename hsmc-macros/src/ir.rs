@@ -26,6 +26,11 @@ pub struct Ir {
     /// Duration triggers referenced anywhere, in first-seen order.
     /// Each one gets a trigger id used by the timer table.
     pub duration_triggers: Vec<DurationTrigger>,
+    /// True when the chart declared `trace;` at root. Codegen routes
+    /// trace calls to `::hsmc::__chart_trace!`, which dispatches to a
+    /// backend (defmt / log / tracing / no-op) based on the user's
+    /// `hsmc/trace-*` feature selection in their `Cargo.toml`.
+    pub trace_enabled: bool,
 }
 
 pub struct ActionIr {
@@ -122,6 +127,7 @@ pub fn build_ir(input: StatechartInput) -> syn::Result<Ir> {
         }
     };
     let terminate_event = root_body.terminate.as_ref().map(|(i, _)| i.clone());
+    let trace_enabled = root_body.trace_enabled;
 
     let mut ir = Ir {
         name,
@@ -133,6 +139,7 @@ pub fn build_ir(input: StatechartInput) -> syn::Result<Ir> {
         actions: Vec::new(),
         event_variants: Vec::new(),
         duration_triggers: Vec::new(),
+        trace_enabled,
     };
 
     // Two passes: collect the set of declared state names first so
@@ -140,6 +147,9 @@ pub fn build_ir(input: StatechartInput) -> syn::Result<Ir> {
     // (transition) or a handler fn (action) based on the declared set.
     let mut state_names = std::collections::HashSet::new();
     collect_state_names(&root_body, &mut state_names);
+    // Per spec: the root state is just a state, named after the chart.
+    // `on(...) => <ChartName>;` must classify as a transition to root.
+    state_names.insert(ir.name.to_string());
 
     let name_span = ir.name.span();
     let root_name = Ident::new("__Root", name_span);
@@ -151,6 +161,13 @@ pub fn build_ir(input: StatechartInput) -> syn::Result<Ir> {
         root_body.default_span.unwrap_or(name_span),
     );
     lower_body(&mut ir, root_id, &root_body, true, &state_names)?;
+
+    // Intern the terminate event variant so the journal can record it
+    // by id (otherwise `__event_to_id` returns u16::MAX for the very
+    // event that triggered shutdown, which is useless for replay).
+    if let Some(t_ident) = ir.terminate_event.clone() {
+        let _ = intern_event(&mut ir, &t_ident, None)?;
+    }
 
     Ok(ir)
 }
@@ -494,6 +511,12 @@ pub fn resolve_transitions(ir: &mut Ir) -> syn::Result<()> {
         if s.name != "__Root" {
             name_map.insert(s.name.to_string(), s.id);
         }
+    }
+    // Per spec: the root state is targetable as a transition destination
+    // by the chart's own name. Find the root (parent is None) and map
+    // `<ChartName>` → root_id.
+    if let Some(root) = ir.states.iter().find(|s| s.parent.is_none()) {
+        name_map.insert(ir.name.to_string(), root.id);
     }
 
     let n = ir.states.len();

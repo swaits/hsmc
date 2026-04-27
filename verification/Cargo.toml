@@ -1,0 +1,39 @@
+[package]
+name = "hsmc-verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Creusot deductive proofs for the hsmc runtime data structures."
+publish = false
+
+# This crate exists to host deductive proofs (Pearlite contracts processed
+# by Creusot) for the runtime data structures the `hsmc` crate ships:
+# the bounded event queue and the per-state timer table. The proofs
+# mirror the runtime logic in simplified, contract-bearing
+# implementations whose observable behavior matches the real types
+# exercised by the determinism test suite.
+#
+# Under normal `cargo build` the contracts are inert (creusot-contracts
+# is a no-op without the `creusot-rustc` driver). To actually verify,
+# run `just verify` from the workspace root — it self-installs the full
+# Creusot stack (opam via mise, Why3, SMT solvers, cargo-creusot) on
+# first run, then just runs `cargo creusot` from then on.
+#
+# See `INVARIANTS.md` for the spec-rule → proof mapping.
+
+[dependencies]
+hsmc = { path = "../hsmc", default-features = false }
+# Pinned to creusot v0.9.0 — last tagged release with `creusot-std`.
+# `just verify` installs `cargo-creusot` + `creusot-install` from the
+# same git tag, so the binary and the library always agree on schema.
+creusot-std = { git = "https://github.com/creusot-rs/creusot", tag = "v0.9.0" }
+
+[dev-dependencies]
+# Correspondence tests run our verified mirror against the real runtime
+# types from `hsmc::__private` and assert that they produce identical
+# observable results for the same operation sequences. This is how we
+# tie the proofs to the shipped code.
+hsmc = { path = "../hsmc", default-features = false }

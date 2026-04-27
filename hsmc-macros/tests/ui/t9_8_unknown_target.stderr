@@ -35,6 +35,24 @@ warning: unexpected `cfg` condition value: `embassy`
    = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
    = note: this warning originates in the macro `statechart` (in Nightly builds, run with -Z macro-backtrace for more info)
 
+warning: unexpected `cfg` condition value: `journal`
+  --> tests/ui/t9_8_unknown_target.rs:8:1
+   |
+ 8 | / statechart! {
+ 9 | | M {
+10 | |     context: Ctx;
+11 | |     events: Ev;
+...  |
+17 | | }
+   | |_^
+   |
+   = note: no expected values for `feature`
+   = note: using a cfg inside a macro will use the cfgs from the destination crate and not the ones from the defining crate
+   = help: try referring to `statechart` crate for guidance on how handle this unexpected cfg
+   = help: the macro `statechart` may come from an old version of the `hsmc_macros` crate, try updating your dependency with `cargo update -p hsmc_macros`
+   = note: see <https://doc.rust-lang.org/nightly/rustc/check-cfg/cargo-specifics.html> for more information about checking conditional configuration
+   = note: this warning originates in the macro `statechart` (in Nightly builds, run with -Z macro-backtrace for more info)
+
 error[E0046]: not all trait items implemented, missing: `NonExistent`
   --> tests/ui/t9_8_unknown_target.rs:19:1
    |

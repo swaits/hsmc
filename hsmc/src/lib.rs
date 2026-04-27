@@ -102,6 +102,142 @@ pub use hsmc_macros::statechart;
 mod error;
 pub use error::HsmcError;
 
+// ── Journal (deterministic execution trace) ─────────────────────────
+//
+// When `feature = "journal"` is enabled, the macro emits one
+// [`TraceEvent`] per observable atom: entries, exits, action calls,
+// during start/cancel, timer arm/cancel/fire, queued emits, event
+// dispatch, transitions, termination. The events are appended to the
+// machine's internal `JournalSink` so callers can compare against an
+// expected sequence (see `tests/replay.rs`).
+//
+// When the feature is OFF, the codegen still emits `__chart_journal!`
+// invocations at every hook site, but the macro expands to nothing
+// (zero overhead) and `JournalSink` is a ZST so the field on the
+// machine takes 0 bytes.
+
+#[cfg(feature = "journal")]
+mod journal;
+
+#[cfg(feature = "journal")]
+pub use journal::{ActionKind, Journal, TraceEvent};
+
+/// Journal call dispatcher invoked by `statechart!`-generated code.
+/// Not part of the public API.
+///
+/// Call form: `__chart_journal!(<sink-expr>, <TraceEvent expr>)`.
+/// The first argument is a place expression for the sink (typically
+/// `self.__journal`); the second is the full `TraceEvent` value to
+/// push.
+///
+/// When the `journal` feature is off, the macro discards both arguments
+/// and expands to nothing — the codegen can refer to `TraceEvent::*`
+/// without the type having to exist.
+#[cfg(feature = "journal")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_journal {
+    ($sink:expr, $event:expr) => {
+        $sink.push($event);
+    };
+}
+
+/// No-op fallback for when `feature = "journal"` is disabled.
+#[cfg(not(feature = "journal"))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_journal {
+    ($($_:tt)*) => {};
+}
+
+// ── Auto-tracing dispatcher ──────────────────────────────────────────
+//
+// When a chart opts in via `trace;`, the proc-macro emits calls to
+// `::hsmc::__chart_trace!(<kind> <chart-name>, <state-or-action>);` at
+// every state entry, exit, action invocation, and transition. This
+// crate-level macro picks the backend based on which `trace-*` cargo
+// feature is enabled — exactly one of `trace-defmt` / `trace-log` /
+// `trace-tracing`. With none enabled it expands to nothing.
+//
+// Multiple `trace-*` features enabled simultaneously produce a
+// duplicate-definition compile error from rustc. Intentional.
+
+/// Internal trace dispatcher invoked by `statechart!`-generated code.
+/// Not part of the public API.
+#[cfg(feature = "trace-defmt")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_trace {
+    (enter $chart:literal, $state:expr) => {
+        ::defmt::info!("[{}] enter {}", $chart, $state);
+    };
+    (exit $chart:literal, $state:expr) => {
+        ::defmt::info!("[{}] exit  {}", $chart, $state);
+    };
+    (action $chart:literal, $action:expr) => {
+        ::defmt::trace!("[{}] action {}", $chart, $action);
+    };
+    (transition $chart:literal, $from:expr, $to:expr) => {
+        ::defmt::info!("[{}] {} -> {}", $chart, $from, $to);
+    };
+    ($($_:tt)*) => {};
+}
+
+/// Internal trace dispatcher invoked by `statechart!`-generated code.
+/// Not part of the public API.
+#[cfg(feature = "trace-log")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_trace {
+    (enter $chart:literal, $state:expr) => {
+        ::log::info!("[{}] enter {}", $chart, $state);
+    };
+    (exit $chart:literal, $state:expr) => {
+        ::log::info!("[{}] exit  {}", $chart, $state);
+    };
+    (action $chart:literal, $action:expr) => {
+        ::log::trace!("[{}] action {}", $chart, $action);
+    };
+    (transition $chart:literal, $from:expr, $to:expr) => {
+        ::log::info!("[{}] {} -> {}", $chart, $from, $to);
+    };
+    ($($_:tt)*) => {};
+}
+
+/// Internal trace dispatcher invoked by `statechart!`-generated code.
+/// Not part of the public API.
+#[cfg(feature = "trace-tracing")]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_trace {
+    (enter $chart:literal, $state:expr) => {
+        ::tracing::info!(chart = $chart, state = $state, "enter");
+    };
+    (exit $chart:literal, $state:expr) => {
+        ::tracing::info!(chart = $chart, state = $state, "exit");
+    };
+    (action $chart:literal, $action:expr) => {
+        ::tracing::trace!(chart = $chart, action = $action, "action");
+    };
+    (transition $chart:literal, $from:expr, $to:expr) => {
+        ::tracing::info!(chart = $chart, from = $from, to = $to, "transition");
+    };
+    ($($_:tt)*) => {};
+}
+
+/// No-op fallback when no `trace-*` backend feature is enabled. The
+/// chart's `trace;` keyword still parses; calls just expand to nothing.
+#[cfg(not(any(
+    feature = "trace-defmt",
+    feature = "trace-log",
+    feature = "trace-tracing",
+)))]
+#[doc(hidden)]
+#[macro_export]
+macro_rules! __chart_trace {
+    ($($_:tt)*) => {};
+}
+
 #[doc(hidden)]
 pub mod __private {
     //! Implementation details used by code generated by the `statechart!` macro.
@@ -109,6 +245,63 @@ pub mod __private {
     pub use heapless;
 
     pub use crate::error::HsmcError;
+
+    // ── JournalSink ──────────────────────────────────────────────────
+    //
+    // The codegen unconditionally declares a `__journal: JournalSink`
+    // field on the generated machine and on the action context. When the
+    // `journal` feature is on, JournalSink wraps a `Vec<TraceEvent>` and
+    // the `__chart_journal!` macro pushes events into it. When off, it's
+    // a ZST and the macro expands to nothing — zero overhead, no `alloc`
+    // requirement.
+
+    /// Journal sink storing the in-order trace of observable execution
+    /// atoms when `feature = "journal"` is enabled. Zero-sized when
+    /// disabled.
+    #[cfg(feature = "journal")]
+    #[derive(Default, Debug, Clone)]
+    pub struct JournalSink {
+        events: crate::journal::Vec<crate::TraceEvent>,
+    }
+
+    #[cfg(feature = "journal")]
+    impl JournalSink {
+        pub const fn new() -> Self {
+            Self {
+                events: crate::journal::Vec::new(),
+            }
+        }
+        #[inline]
+        pub fn push(&mut self, event: crate::TraceEvent) {
+            self.events.push(event);
+        }
+        pub fn events(&self) -> &[crate::TraceEvent] {
+            &self.events
+        }
+        pub fn take(&mut self) -> crate::journal::Vec<crate::TraceEvent> {
+            core::mem::take(&mut self.events)
+        }
+        pub fn clear(&mut self) {
+            self.events.clear();
+        }
+        pub fn len(&self) -> usize {
+            self.events.len()
+        }
+        pub fn is_empty(&self) -> bool {
+            self.events.is_empty()
+        }
+    }
+
+    #[cfg(not(feature = "journal"))]
+    #[derive(Default, Debug, Clone, Copy)]
+    pub struct JournalSink;
+
+    #[cfg(not(feature = "journal"))]
+    impl JournalSink {
+        pub const fn new() -> Self {
+            Self
+        }
+    }
 
     /// A simple bounded event queue built on `heapless::Deque`.
     /// Capacity is a const generic.

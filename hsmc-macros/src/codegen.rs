@@ -7,6 +7,94 @@ use syn::Ident;
 use crate::ir::{HandlerKindIr, Ir, TriggerIr, VariantKind};
 use crate::parse::{During, PayloadKind};
 
+/// FNV-1a 64-bit hash of a chart's structural fingerprint. Stable across
+/// rebuilds of the same chart definition; differs whenever any structural
+/// element (state name, action name, transition target, default child,
+/// timer trigger, event variant) changes.
+///
+/// Used as `<Chart>::CHART_HASH` so a journal recorded for one chart can
+/// be rejected at replay time when the chart definition has drifted.
+fn compute_chart_hash(ir: &Ir) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+    let mut h: u64 = FNV_OFFSET;
+    let mut feed = |bytes: &[u8]| {
+        for &b in bytes {
+            h ^= b as u64;
+            h = h.wrapping_mul(FNV_PRIME);
+        }
+        h ^= 0xff;
+        h = h.wrapping_mul(FNV_PRIME);
+    };
+    feed(ir.name.to_string().as_bytes());
+    for s in &ir.states {
+        feed(&s.id.to_le_bytes());
+        feed(s.name.to_string().as_bytes());
+        feed(&[s.parent.unwrap_or(u16::MAX).to_le_bytes()[0], s.parent.unwrap_or(u16::MAX).to_le_bytes()[1]]);
+        feed(&s.depth.to_le_bytes());
+        feed(&s.default_child.unwrap_or(u16::MAX).to_le_bytes());
+        for &aid in &s.entries { feed(&aid.to_le_bytes()); }
+        feed(&[0xee]); // separator: entries → exits
+        for &aid in &s.exits { feed(&aid.to_le_bytes()); }
+        feed(&[0xff]); // separator: exits → handlers
+        for h_ir in &s.handlers {
+            match &h_ir.trigger {
+                TriggerIr::Event(id, ident, _) => {
+                    feed(&[0x01]);
+                    feed(&id.to_le_bytes());
+                    feed(ident.to_string().as_bytes());
+                }
+                TriggerIr::Duration(id) => {
+                    feed(&[0x02]);
+                    feed(&id.to_le_bytes());
+                }
+            }
+            match &h_ir.kind {
+                HandlerKindIr::Transition(name, slot) => {
+                    feed(&[0x10]);
+                    feed(name.to_string().as_bytes());
+                    feed(&slot.unwrap_or(u16::MAX).to_le_bytes());
+                }
+                HandlerKindIr::Action(aid, name) => {
+                    feed(&[0x11]);
+                    feed(&aid.to_le_bytes());
+                    feed(name.to_string().as_bytes());
+                }
+            }
+        }
+        feed(&[0xfe]); // separator: handlers → timers
+        for &t in &s.owned_timers { feed(&t.to_le_bytes()); }
+        feed(&[0xfd]); // separator: timers → durings
+        feed(&(s.durings.len() as u16).to_le_bytes());
+    }
+    feed(&[0xfc]); // separator: states → actions
+    for a in &ir.actions {
+        feed(a.name.to_string().as_bytes());
+        feed(&(a.params.len() as u16).to_le_bytes());
+    }
+    feed(&[0xfb]); // separator: actions → events
+    for e in &ir.event_variants {
+        feed(e.name.to_string().as_bytes());
+    }
+    h
+}
+
+/// Emit a single trace call routed through the hsmc-internal dispatcher
+/// (`::hsmc::__chart_trace!`), or nothing if the chart didn't declare
+/// `trace;`. The dispatcher picks the actual backend (defmt / log /
+/// tracing / no-op) based on which `hsmc/trace-*` cargo feature the
+/// user enabled in their `Cargo.toml` — no extra wiring required.
+///
+/// Zero-overhead when `trace_enabled` is false: generates an empty
+/// TokenStream so the compiler sees no extra work at the call site.
+fn emit_trace_call(trace_enabled: bool, args: TokenStream) -> TokenStream {
+    if trace_enabled {
+        quote! { ::hsmc::__chart_trace!(#args); }
+    } else {
+        TokenStream::new()
+    }
+}
+
 /// For each user-declared leaf state that has one or more `during:` activities
 /// active (either declared on it, on any ancestor, or on root), return its
 /// state id and the flattened list of durings in leaf-first order. Durings
@@ -406,6 +494,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
     let n_dur_triggers = ir.duration_triggers.len();
     let max_timers = n_dur_triggers.max(1);
 
+    let chart_hash = compute_chart_hash(ir);
+    let chart_hash_lit = quote! { #chart_hash };
+
     // Public state enum — only user-declared states (skip __Root).
     let state_variants: Vec<_> = ir
         .states
@@ -432,6 +523,233 @@ pub fn generate(ir: &Ir) -> TokenStream {
             quote! { #sid => &[#(#exits_tok),*], }
         })
         .collect();
+
+    // Per-id name lookups, only emitted when the chart opted into tracing.
+    // Chart-name string is reused at every trace site as a literal.
+    let chart_name_lit = ir.name.to_string();
+    let state_name_arms: Vec<_> = ir
+        .states
+        .iter()
+        .map(|s| {
+            let sid = s.id;
+            let nm = s.name.to_string();
+            quote! { #sid => #nm, }
+        })
+        .collect();
+    let action_name_arms: Vec<_> = ir
+        .actions
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let aid = i as u16;
+            let nm = a.name.to_string();
+            quote! { #aid => #nm, }
+        })
+        .collect();
+    let trace_helpers = if ir.trace_enabled {
+        quote! {
+            #[inline(always)]
+            #[doc(hidden)]
+            fn __state_name(sid: u16) -> &'static str {
+                match sid {
+                    #(#state_name_arms)*
+                    _ => "<unknown>",
+                }
+            }
+            #[inline(always)]
+            #[doc(hidden)]
+            fn __action_name(aid: u16) -> &'static str {
+                match aid {
+                    #(#action_name_arms)*
+                    _ => "<unknown>",
+                }
+            }
+        }
+    } else {
+        TokenStream::new()
+    };
+    // ── Observation hook snippets ─────────────────────────────────────
+    //
+    // Trace and journal want the same call sites: enter, exit, action,
+    // transition. We emit a single `observe_*` snippet per site that
+    // contains BOTH the trace call (gated on `ir.trace_enabled` at
+    // parse time, may also be no-op'd by the trace-* feature gate) and
+    // the journal call (gated on the `journal` cargo feature inside the
+    // macro). Either gate independently produces zero overhead when off.
+    //
+    // Journal-only sites (timers, durings, emits, event dispatch,
+    // termination) get plain `journal_*` snippets — trace doesn't have
+    // a string format for them.
+
+    // Trace-side primitives, recreated here so each observe_* snippet
+    // can splice them in.
+    let trace_enter_call = emit_trace_call(
+        ir.trace_enabled,
+        quote! { enter #chart_name_lit, Self::__state_name(sid) },
+    );
+    let trace_exit_call = emit_trace_call(
+        ir.trace_enabled,
+        quote! { exit #chart_name_lit, Self::__state_name(sid) },
+    );
+    let trace_action_call = emit_trace_call(
+        ir.trace_enabled,
+        quote! { action #chart_name_lit, Self::__action_name(aid) },
+    );
+    let trace_transition_call = emit_trace_call(
+        ir.trace_enabled,
+        quote! {
+            transition #chart_name_lit,
+            self.current.map(Self::__state_name).unwrap_or("<none>"),
+            Self::__state_name(target)
+        },
+    );
+
+    let observe_started = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::Started { chart_hash: Self::CHART_HASH }
+        );
+    };
+    let observe_entered = quote! {
+        #trace_enter_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::Entered { state: sid }
+        );
+    };
+    let observe_exited = quote! {
+        #trace_exit_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::Exited { state: sid }
+        );
+    };
+    let observe_action_entry = quote! {
+        #trace_action_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::ActionInvoked {
+                state: sid,
+                action: aid,
+                kind: ::hsmc::ActionKind::Entry,
+            }
+        );
+    };
+    let observe_action_exit = quote! {
+        #trace_action_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::ActionInvoked {
+                state: sid,
+                action: aid,
+                kind: ::hsmc::ActionKind::Exit,
+            }
+        );
+    };
+    let observe_action_handler = quote! {
+        #trace_action_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::ActionInvoked {
+                state: __handler_state,
+                action: aid,
+                kind: ::hsmc::ActionKind::Handler,
+            }
+        );
+    };
+    let observe_transition = quote! {
+        #trace_transition_call
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::TransitionFired {
+                from: self.current,
+                to: target,
+            }
+        );
+    };
+    let observe_event_delivered = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::EventDelivered {
+                handler_state: __handler_state,
+                event: __ev_id,
+            }
+        );
+    };
+    let observe_event_dropped = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::EventDropped { event: __ev_id }
+        );
+    };
+    let observe_timer_armed = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::TimerArmed {
+                state: sid,
+                timer: tid,
+                ns: __duration_for(tid).as_nanos() as u64,
+            }
+        );
+    };
+    let observe_timer_cancelled = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::TimerCancelled { state: sid, timer: tid }
+        );
+    };
+    let observe_timer_fired = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::TimerFired { state: __t_state, timer: __t_trigger }
+        );
+    };
+    let observe_terminated = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::Terminated
+        );
+    };
+    let observe_terminate_requested = quote! {
+        ::hsmc::__chart_journal!(
+            self.__journal,
+            ::hsmc::TraceEvent::TerminateRequested { event: __ev_id }
+        );
+    };
+
+    // Per-state during count, used to emit DuringStarted/Cancelled
+    // events one per declared during in the state.
+    let durings_count_arms: Vec<TokenStream> = ir
+        .states
+        .iter()
+        .map(|s| {
+            let sid = s.id;
+            let n = s.durings.len() as u16;
+            quote! { #sid => #n, }
+        })
+        .collect();
+    let observe_durings_started = quote! {
+        let __dn = Self::__durings_count(sid);
+        let mut __di: u16 = 0;
+        while __di < __dn {
+            ::hsmc::__chart_journal!(
+                self.__journal,
+                ::hsmc::TraceEvent::DuringStarted { state: sid, during: __di }
+            );
+            __di += 1;
+        }
+    };
+    let observe_durings_cancelled = quote! {
+        let __dn = Self::__durings_count(sid);
+        let mut __di: u16 = 0;
+        while __di < __dn {
+            ::hsmc::__chart_journal!(
+                self.__journal,
+                ::hsmc::TraceEvent::DuringCancelled { state: sid, during: __di }
+            );
+            __di += 1;
+        }
+    };
 
     let parent_table = ir
         .states
@@ -1412,6 +1730,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             ctx: &'a mut #ctx_ty,
             __queue: &'a mut (dyn ::hsmc::__private::QueuePush<#ev_ty> + ::core::marker::Send),
             __terminated: &'a bool,
+            __journal: &'a mut ::hsmc::__private::JournalSink,
         }
 
         #[doc = #ctx_alias_doc]
@@ -1432,9 +1751,23 @@ pub fn generate(ir: &Ir) -> TokenStream {
             /// [`HsmcError::QueueFull`] if the queue is full, or
             /// [`HsmcError::AlreadyTerminated`] if the machine is shutting
             /// down.
+            #[allow(unused_variables)]
             pub fn emit(&mut self, event: #ev_ty) -> ::core::result::Result<(), ::hsmc::HsmcError> {
                 if *self.__terminated { return Err(::hsmc::HsmcError::AlreadyTerminated); }
-                self.__queue.push(event)
+                let __ev_id = __event_to_id(&event);
+                let __result = self.__queue.push(event);
+                if __result.is_ok() {
+                    ::hsmc::__chart_journal!(
+                        self.__journal,
+                        ::hsmc::TraceEvent::EmitQueued { event: __ev_id }
+                    );
+                } else {
+                    ::hsmc::__chart_journal!(
+                        self.__journal,
+                        ::hsmc::TraceEvent::EmitFailed { event: __ev_id }
+                    );
+                }
+                __result
             }
 
             /// Convenience wrapper around [`emit()`](Self::emit) that panics on
@@ -1454,6 +1787,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
             timers: ::hsmc::__private::TimerTable<#max_timers>,
             terminated: bool,
             __overflow: bool,
+            /// Deterministic execution journal. ZST when the `hsmc/journal`
+            /// feature is off; a `Vec<TraceEvent>` when on.
+            __journal: ::hsmc::__private::JournalSink,
             #tokio_fields
             #embassy_fields
         }
@@ -1556,6 +1892,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                     timers: ::hsmc::__private::TimerTable::new(),
                     terminated: false,
                     __overflow: false,
+                    __journal: ::hsmc::__private::JournalSink::new(),
                     #tokio_ctor
                     #embassy_ctor
                 };
@@ -1599,6 +1936,41 @@ pub fn generate(ir: &Ir) -> TokenStream {
             /// Mutably borrow the user-provided context (extension beyond spec §4.4; provided for test convenience).
             pub fn context_mut(&mut self) -> &mut #ctx_ty { &mut self.ctx }
 
+            /// Borrow the deterministic execution journal. Only available
+            /// under `feature = "journal"`. Returns the in-order sequence
+            /// of every observable atom — entries, exits, action calls,
+            /// during start/cancel, timer arm/cancel/fire, queued emits,
+            /// event delivery, transitions, and termination.
+            #[cfg(feature = "journal")]
+            pub fn journal(&self) -> &[::hsmc::TraceEvent] {
+                self.__journal.events()
+            }
+
+            /// Take and clear the deterministic execution journal. Useful
+            /// at test boundaries to compare against an expected sequence
+            /// without lingering events from earlier runs.
+            #[cfg(feature = "journal")]
+            pub fn take_journal(&mut self) -> ::hsmc::Journal {
+                self.__journal.take()
+            }
+
+            /// Drop all journal events without returning them.
+            #[cfg(feature = "journal")]
+            pub fn clear_journal(&mut self) {
+                self.__journal.clear();
+            }
+
+            /// Stable identifier for this chart's structural definition.
+            /// A different `CHART_HASH` means the chart is a different
+            /// machine — replay against a journal recorded for a
+            /// different `CHART_HASH` is meaningless and the test driver
+            /// should refuse to compare.
+            pub const CHART_HASH: u64 = #chart_hash_lit;
+
+            /// Returns `CHART_HASH` (instance-method form for symmetry
+            /// with other introspection methods).
+            pub const fn chart_hash(&self) -> u64 { Self::CHART_HASH }
+
             /// Advance the machine by `elapsed` wall-clock time. Returns the
             /// duration until the next timer fires, or `None` if the machine
             /// has no live timers (§4.4).
@@ -1607,10 +1979,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
             /// because action methods are `async fn` and must be `.await`ed
             /// during dispatch. Under default features it stays sync.
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
+            #[allow(unused_variables)]
             pub fn step(&mut self, elapsed: ::hsmc::Duration) -> Option<::hsmc::Duration> {
                 if self.terminated { return None; }
 
                 if self.current.is_none() {
+                    #observe_started
                     self.enter_path(0);
                     return self.timers.min_remaining();
                 }
@@ -1618,12 +1992,15 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 self.timers.decrement(elapsed);
 
                 if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
-                    // Re-arm repeating timers before dispatch. If the
-                    // handler transitions out of `state`, the state's exit
-                    // path will cancel the freshly-armed timer.
+                    let __t_state = state;
+                    let __t_trigger = trig;
+                    #observe_timer_fired
                     if __duration_repeats(trig) {
                         let d = __duration_for(trig);
                         self.timers.start(state, trig, d);
+                        let sid = state;
+                        let tid = trig;
+                        #observe_timer_armed
                     }
                     self.dispatch_trigger(state, 1, trig);
                     return self.timers.min_remaining();
@@ -1631,19 +2008,30 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
                 if let Some(ev) = self.queue.pop_front() {
                     if matches!(__check_terminate(&ev), TerminateCheck::Yes) {
+                        let __ev_id = __event_to_id(&ev);
+                        #observe_terminate_requested
                         self.do_terminate();
                         return None;
                     }
-                    let eid = __event_to_id(&ev);
-                    if eid != u16::MAX {
-                        let mut cur = self.current;
-                        while let Some(s) = cur {
-                            if let Some((actions, target)) = __handler_lookup(s, 0, eid) {
+                    let __ev_id = __event_to_id(&ev);
+                    if __ev_id != u16::MAX {
+                        let mut __cur = self.current;
+                        let mut __delivered = false;
+                        while let Some(s) = __cur {
+                            if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
+                                let __handler_state = s;
+                                #observe_event_delivered
                                 self.run_handlers(s, actions, target, Some(&ev));
+                                __delivered = true;
                                 break;
                             }
-                            cur = __PARENT[s as usize];
+                            __cur = __PARENT[s as usize];
                         }
+                        if !__delivered {
+                            #observe_event_dropped
+                        }
+                    } else {
+                        #observe_event_dropped
                     }
                     return self.timers.min_remaining();
                 }
@@ -1652,10 +2040,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
+            #[allow(unused_variables)]
             pub async fn step(&mut self, elapsed: ::hsmc::Duration) -> Option<::hsmc::Duration> {
                 if self.terminated { return None; }
 
                 if self.current.is_none() {
+                    #observe_started
                     self.enter_path(0).await;
                     return self.timers.min_remaining();
                 }
@@ -1663,9 +2053,15 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 self.timers.decrement(elapsed);
 
                 if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
+                    let __t_state = state;
+                    let __t_trigger = trig;
+                    #observe_timer_fired
                     if __duration_repeats(trig) {
                         let d = __duration_for(trig);
                         self.timers.start(state, trig, d);
+                        let sid = state;
+                        let tid = trig;
+                        #observe_timer_armed
                     }
                     self.dispatch_trigger(state, 1, trig).await;
                     return self.timers.min_remaining();
@@ -1673,19 +2069,30 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
                 if let Some(ev) = self.queue.pop_front() {
                     if matches!(__check_terminate(&ev), TerminateCheck::Yes) {
+                        let __ev_id = __event_to_id(&ev);
+                        #observe_terminate_requested
                         self.do_terminate().await;
                         return None;
                     }
-                    let eid = __event_to_id(&ev);
-                    if eid != u16::MAX {
-                        let mut cur = self.current;
-                        while let Some(s) = cur {
-                            if let Some((actions, target)) = __handler_lookup(s, 0, eid) {
+                    let __ev_id = __event_to_id(&ev);
+                    if __ev_id != u16::MAX {
+                        let mut __cur = self.current;
+                        let mut __delivered = false;
+                        while let Some(s) = __cur {
+                            if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
+                                let __handler_state = s;
+                                #observe_event_delivered
                                 self.run_handlers(s, actions, target, Some(&ev)).await;
+                                __delivered = true;
                                 break;
                             }
-                            cur = __PARENT[s as usize];
+                            __cur = __PARENT[s as usize];
                         }
+                        if !__delivered {
+                            #observe_event_dropped
+                        }
+                    } else {
+                        #observe_event_dropped
                     }
                     return self.timers.min_remaining();
                 }
@@ -1730,6 +2137,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
+            #[allow(unused_variables)]
             fn run_handlers(
                 &mut self,
                 source_state: u16,
@@ -1737,7 +2145,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 target: Option<u16>,
                 event: Option<&#ev_ty>,
             ) {
+                let __handler_state = source_state;
                 for &aid in actions {
+                    #observe_action_handler
                     self.run_action(aid, event);
                     if self.terminated { return; }
                 }
@@ -1747,6 +2157,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
+            #[allow(unused_variables)]
             async fn run_handlers(
                 &mut self,
                 source_state: u16,
@@ -1754,7 +2165,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 target: Option<u16>,
                 event: Option<&#ev_ty>,
             ) {
+                let __handler_state = source_state;
                 for &aid in actions {
+                    #observe_action_handler
                     self.run_action(aid, event).await;
                     if self.terminated { return; }
                 }
@@ -1765,6 +2178,11 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn run_action(&mut self, aid: u16, event: Option<&#ev_ty>) {
+                // Trace + journal emission for action calls now happens at
+                // the call sites (`#observe_action_entry`,
+                // `#observe_action_exit`, `#observe_action_handler`) so the
+                // ActionKind tag and call-site state id can be recorded
+                // accurately. `run_action` itself is just dispatch.
                 let ctx = &mut self.ctx;
                 let mut __proxy = ::hsmc::__private::EmitProxy {
                     queue: &mut self.queue,
@@ -1772,10 +2190,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 };
                 let queue: &mut (dyn ::hsmc::__private::QueuePush<#ev_ty> + ::core::marker::Send) = &mut __proxy;
                 let terminated = &self.terminated;
+                let journal = &mut self.__journal;
                 let mut actx = #action_ctx_name {
                     ctx,
                     __queue: queue,
                     __terminated: terminated,
+                    __journal: journal,
                 };
                 fn __dispatch<Ctx: #actions_trait_name>(
                     ctx: &mut Ctx,
@@ -1793,6 +2213,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn run_action(&mut self, aid: u16, event: Option<&#ev_ty>) {
+                // See sync run_action above — observation happens at call sites.
                 let ctx = &mut self.ctx;
                 let mut __proxy = ::hsmc::__private::EmitProxy {
                     queue: &mut self.queue,
@@ -1800,10 +2221,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 };
                 let queue: &mut (dyn ::hsmc::__private::QueuePush<#ev_ty> + ::core::marker::Send) = &mut __proxy;
                 let terminated = &self.terminated;
+                let journal = &mut self.__journal;
                 let mut actx = #action_ctx_name {
                     ctx,
                     __queue: queue,
                     __terminated: terminated,
+                    __journal: journal,
                 };
                 async fn __dispatch<Ctx: #actions_trait_name>(
                     ctx: &mut Ctx,
@@ -1840,6 +2263,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                #observe_transition
                 if Self::is_up_transition(self.current, target) {
                     if let Some(mut cur) = self.current {
                         while cur != target {
@@ -1886,6 +2310,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                #observe_transition
                 if Self::is_up_transition(self.current, target) {
                     if let Some(mut cur) = self.current {
                         while cur != target {
@@ -1958,31 +2383,41 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
+            #[allow(unused_variables)]
             fn enter_state_no_descent(&mut self, sid: u16) {
+                #observe_entered
                 let entries = Self::entries_of(sid);
                 for &aid in entries {
+                    #observe_action_entry
                     self.run_action(aid, None);
                     if self.terminated { return; }
                 }
                 for &tid in __owned_timers(sid) {
                     let d = __duration_for(tid);
                     self.timers.start(sid, tid, d);
+                    #observe_timer_armed
                 }
                 self.current = Some(sid);
+                #observe_durings_started
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
+            #[allow(unused_variables)]
             async fn enter_state_no_descent(&mut self, sid: u16) {
+                #observe_entered
                 let entries = Self::entries_of(sid);
                 for &aid in entries {
+                    #observe_action_entry
                     self.run_action(aid, None).await;
                     if self.terminated { return; }
                 }
                 for &tid in __owned_timers(sid) {
                     let d = __duration_for(tid);
                     self.timers.start(sid, tid, d);
+                    #observe_timer_armed
                 }
                 self.current = Some(sid);
+                #observe_durings_started
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
@@ -2004,23 +2439,39 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
+            #[allow(unused_variables)]
             fn exit_state(&mut self, sid: u16) {
+                // Per spec §"Entry and exit ordering":
+                //   1. cancel durings  2. cancel timers  3. exit actions  4. Exited
+                #observe_durings_cancelled
+                for &tid in __owned_timers(sid) {
+                    #observe_timer_cancelled
+                }
                 self.timers.cancel_state(sid);
                 let exits = Self::exits_of(sid);
                 for &aid in exits {
+                    #observe_action_exit
                     self.run_action(aid, None);
                     if self.terminated { return; }
                 }
+                #observe_exited
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
+            #[allow(unused_variables)]
             async fn exit_state(&mut self, sid: u16) {
+                #observe_durings_cancelled
+                for &tid in __owned_timers(sid) {
+                    #observe_timer_cancelled
+                }
                 self.timers.cancel_state(sid);
                 let exits = Self::exits_of(sid);
                 for &aid in exits {
+                    #observe_action_exit
                     self.run_action(aid, None).await;
                     if self.terminated { return; }
                 }
+                #observe_exited
             }
 
             fn entries_of(sid: u16) -> &'static [u16] {
@@ -2035,6 +2486,16 @@ pub fn generate(ir: &Ir) -> TokenStream {
                     _ => &[],
                 }
             }
+            #[doc(hidden)]
+            #[allow(unused_variables)]
+            fn __durings_count(sid: u16) -> u16 {
+                match sid {
+                    #(#durings_count_arms)*
+                    _ => 0,
+                }
+            }
+
+            #trace_helpers
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn do_terminate(&mut self) {
@@ -2050,6 +2511,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 self.terminated = true;
                 self.current = None;
                 while self.queue.pop_front().is_some() {}
+                #observe_terminated
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
@@ -2066,6 +2528,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 self.terminated = true;
                 self.current = None;
                 while self.queue.pop_front().is_some() {}
+                #observe_terminated
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]

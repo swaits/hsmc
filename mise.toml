@@ -1,0 +1,28 @@
+# Project-local mise configuration for hsmc.
+#
+# Lists the dev/test/lint tooling the workspace needs. The verification
+# subcrate has its OWN mise.toml (verification/mise.toml) that pins the
+# specific nightly Rust + opam + Python venv that Creusot requires —
+# `just verify` cd's there so those settings activate.
+#
+# When you `cd` into the repo, the global `enter = "mise i -q"` hook
+# auto-installs everything missing.
+
+[tools]
+
+# ── Rust toolchain (stable) ─────────────────────────────────────────
+# Components and targets needed by the main crate's dev/test/lint flow.
+# Verification needs a different (pinned) nightly — see verification/mise.toml.
+rust = { version = "stable", components = "clippy,rustfmt,rust-src,llvm-tools-preview", targets = "thumbv7em-none-eabihf,thumbv6m-none-eabi,thumbv8m.main-none-eabihf,riscv32imac-unknown-none-elf" }
+
+# ── Cargo subcommands the justfile drives ───────────────────────────
+"cargo:cargo-nextest"  = "latest"   # `just test`, `just dev`
+"cargo:cargo-llvm-cov" = "latest"   # `just coverage`
+"cargo:cargo-mutants"  = "latest"   # `just mutants`
+"cargo:cargo-audit"    = "latest"   # `just audit`
+
+# ── Build orchestration ─────────────────────────────────────────────
+just = "latest"
+
+[settings]
+trusted_config_paths = ["{{ config_root }}"]

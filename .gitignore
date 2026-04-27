@@ -9,6 +9,13 @@
 mutation_history.json
 *.profraw
 
+# Creusot output: cargo-creusot dumps `.coma` (Coma IR) files here for
+# Why3 to read. Regenerated on every `just verify` run.
+/verif/
+
+# Project-local Python venv created by mise's `_.python.venv` config.
+**/.venv/
+
 # Local Claude Code config (per-host overrides)
 .claude/settings.local.json
 

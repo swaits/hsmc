@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["hsmc", "hsmc-macros"]
+members = ["hsmc", "hsmc-macros", "verification"]
 
 [workspace.package]
 version = "0.2.0"

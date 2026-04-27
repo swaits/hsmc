@@ -3,15 +3,3 @@ error: multiple `terminate` declarations
    |
 13 |     terminate(Halt);
    |     ^^^^^^^^^
-
-error[E0405]: cannot find trait `MActions` in this scope
-  --> tests/ui/t9_9_multiple_terminate.rs:19:6
-   |
-19 | impl MActions for MActionContext<'_> {
-   |      ^^^^^^^^ not found in this scope
-
-error[E0425]: cannot find type `MActionContext` in this scope
-  --> tests/ui/t9_9_multiple_terminate.rs:19:19
-   |
-19 | impl MActions for MActionContext<'_> {
-   |                   ^^^^^^^^^^^^^^ not found in this scope
