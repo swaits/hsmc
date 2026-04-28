@@ -53,31 +53,38 @@ statechart! {
 }
 
 impl DumpActions for DumpActionContext<'_> {
-    async fn root_in(&mut self)       { self.n += 1; }
-    async fn root_out(&mut self)      {}
-    async fn idle_in(&mut self)       {}
-    async fn idle_out(&mut self)      {}
-    async fn active_in(&mut self)     {}
-    async fn active_out(&mut self)    {}
-    async fn sub_in(&mut self)        {}
-    async fn sub_out(&mut self)       {}
-    async fn beep_at_idle(&mut self)  {}
-    async fn beep_at_sub(&mut self)   {}
+    async fn root_in(&mut self) {
+        self.n += 1;
+    }
+    async fn root_out(&mut self) {}
+    async fn idle_in(&mut self) {}
+    async fn idle_out(&mut self) {}
+    async fn active_in(&mut self) {}
+    async fn active_out(&mut self) {}
+    async fn sub_in(&mut self) {}
+    async fn sub_out(&mut self) {}
+    async fn beep_at_idle(&mut self) {}
+    async fn beep_at_sub(&mut self) {}
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn dump_journal() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Dump::new(Ctx::default());
-        let _ = m.dispatch(Ev::Beep).await;
-        let _ = m.dispatch(Ev::Go).await;
-        let _ = m.dispatch(Ev::Beep).await;
-        let _ = m.dispatch(Ev::Halt).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Dump::new(Ctx::default());
+            let _ = m.dispatch(Ev::Beep).await;
+            let _ = m.dispatch(Ev::Go).await;
+            let _ = m.dispatch(Ev::Beep).await;
+            let _ = m.dispatch(Ev::Halt).await;
 
-        println!("\n=== JOURNAL DUMP (CHART_HASH={:#x}) ===", Dump::<8>::CHART_HASH);
-        for (i, e) in m.journal().iter().enumerate() {
-            println!("  {:>3}: {:?}", i, e);
-        }
-        println!("=== END ({} events) ===\n", m.journal().len());
-    }).await;
+            println!(
+                "\n=== JOURNAL DUMP (CHART_HASH={:#x}) ===",
+                Dump::<8>::CHART_HASH
+            );
+            for (i, e) in m.journal().iter().enumerate() {
+                println!("  {:>3}: {:?}", i, e);
+            }
+            println!("=== END ({} events) ===\n", m.journal().len());
+        })
+        .await;
 }

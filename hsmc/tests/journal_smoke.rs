@@ -58,14 +58,30 @@ statechart! {
 }
 
 impl JournalProbeActions for JournalProbeActionContext<'_> {
-    async fn root_in(&mut self)    { self.log.push("root_in"); }
-    async fn root_out(&mut self)   { self.log.push("root_out"); }
-    async fn idle_in(&mut self)    { self.log.push("idle_in"); }
-    async fn idle_out(&mut self)   { self.log.push("idle_out"); }
-    async fn active_in(&mut self)  { self.log.push("active_in"); }
-    async fn active_out(&mut self) { self.log.push("active_out"); }
-    async fn sub_in(&mut self)     { self.log.push("sub_in"); }
-    async fn sub_out(&mut self)    { self.log.push("sub_out"); }
+    async fn root_in(&mut self) {
+        self.log.push("root_in");
+    }
+    async fn root_out(&mut self) {
+        self.log.push("root_out");
+    }
+    async fn idle_in(&mut self) {
+        self.log.push("idle_in");
+    }
+    async fn idle_out(&mut self) {
+        self.log.push("idle_out");
+    }
+    async fn active_in(&mut self) {
+        self.log.push("active_in");
+    }
+    async fn active_out(&mut self) {
+        self.log.push("active_out");
+    }
+    async fn sub_in(&mut self) {
+        self.log.push("sub_in");
+    }
+    async fn sub_out(&mut self) {
+        self.log.push("sub_out");
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -92,17 +108,24 @@ async fn journal_records_initial_descent() {
             //   Entered(Idle)
             //   ActionInvoked(Idle, idle_in, Entry)
             //   ... (then the Go event delivery / transition / sub entry)
-            let states_entered: Vec<u16> = j.iter()
+            let states_entered: Vec<u16> = j
+                .iter()
                 .filter_map(|e| match e {
                     TraceEvent::Entered { state } => Some(*state),
                     _ => None,
                 })
                 .collect();
             // At minimum we entered root (id 0), then Idle, then Active, then Sub.
-            assert_eq!(states_entered.len(), 4, "expected 4 Entered events, got {:?}", j);
+            assert_eq!(
+                states_entered.len(),
+                4,
+                "expected 4 Entered events, got {:?}",
+                j
+            );
 
             // Action kinds appear in order Entry → Handler (none here) → Exit.
-            let kinds: Vec<ActionKind> = j.iter()
+            let kinds: Vec<ActionKind> = j
+                .iter()
                 .filter_map(|e| match e {
                     TraceEvent::ActionInvoked { kind, .. } => Some(*kind),
                     _ => None,
@@ -115,9 +138,17 @@ async fn journal_records_initial_descent() {
             // Sub enters (sub_in).
             // Total: Entry(root), Entry(idle), Exit(idle), Entry(active), Entry(sub).
             let entry_count = kinds.iter().filter(|k| **k == ActionKind::Entry).count();
-            let exit_count  = kinds.iter().filter(|k| **k == ActionKind::Exit).count();
-            assert_eq!(entry_count, 4, "expected 4 entry actions, got kinds {:?}", kinds);
-            assert_eq!(exit_count, 1, "expected 1 exit action, got kinds {:?}", kinds);
+            let exit_count = kinds.iter().filter(|k| **k == ActionKind::Exit).count();
+            assert_eq!(
+                entry_count, 4,
+                "expected 4 entry actions, got kinds {:?}",
+                kinds
+            );
+            assert_eq!(
+                exit_count, 1,
+                "expected 1 exit action, got kinds {:?}",
+                kinds
+            );
         })
         .await;
 }
@@ -129,16 +160,16 @@ async fn journal_includes_transition_event() {
             let mut m = JournalProbe::new(Ctx::default());
             let _ = m.dispatch(Ev::Go).await;
 
-            let saw_transition = m.journal().iter().any(|e| matches!(
-                e,
-                TraceEvent::TransitionFired { .. }
-            ));
+            let saw_transition = m
+                .journal()
+                .iter()
+                .any(|e| matches!(e, TraceEvent::TransitionFired { .. }));
             assert!(saw_transition, "journal must contain TransitionFired");
 
-            let saw_event_delivered = m.journal().iter().any(|e| matches!(
-                e,
-                TraceEvent::EventDelivered { .. }
-            ));
+            let saw_event_delivered = m
+                .journal()
+                .iter()
+                .any(|e| matches!(e, TraceEvent::EventDelivered { .. }));
             assert!(saw_event_delivered, "journal must contain EventDelivered");
         })
         .await;
@@ -193,6 +224,32 @@ async fn journal_is_byte_deterministic_across_runs() {
         let again = run().await;
         assert_eq!(first, again, "journal divergence on run #{}", i);
     }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn clear_journal_empties_the_journal() {
+    // Pins down `JournalSink::clear`: after dispatching events that
+    // produce journal entries, calling `clear_journal()` must empty
+    // the journal. Subsequent `journal()` returns an empty slice;
+    // `take_journal()` returns an empty Vec.
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = JournalProbe::new(Ctx::default());
+            let _ = m.dispatch(Ev::Go).await;
+            assert!(
+                !m.journal().is_empty(),
+                "journal should have entries before clear"
+            );
+
+            m.clear_journal();
+            assert!(
+                m.journal().is_empty(),
+                "journal must be empty after clear_journal()"
+            );
+            let taken = m.take_journal();
+            assert!(taken.is_empty(), "take_journal() after clear must be empty");
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]

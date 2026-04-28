@@ -23,12 +23,12 @@ pub struct Ctx;
 
 #[derive(Debug, Clone)]
 pub enum Ev {
-    LeafEv,    // handled at leaf
-    MidEv,     // handled at Mid only
-    RootEv,    // handled at root only
-    Unknown,   // no handler anywhere
-    Shadowed,  // handler at both Leaf and Mid; leaf wins
-    MultiAct,  // multiple actions in same state for same trigger
+    LeafEv,   // handled at leaf
+    MidEv,    // handled at Mid only
+    RootEv,   // handled at root only
+    Unknown,  // no handler anywhere
+    Shadowed, // handler at both Leaf and Mid; leaf wins
+    MultiAct, // multiple actions in same state for same trigger
     Halt,
 }
 
@@ -61,18 +61,18 @@ statechart! {
 }
 
 impl BubActions for BubActionContext<'_> {
-    async fn m_in(&mut self)          {}
-    async fn m_out(&mut self)         {}
-    async fn l_in(&mut self)          {}
-    async fn l_out(&mut self)         {}
-    async fn root_handler(&mut self)  {}
-    async fn mid_handler(&mut self)   {}
-    async fn leaf_handler(&mut self)  {}
-    async fn mid_shadowed(&mut self)  {}
+    async fn m_in(&mut self) {}
+    async fn m_out(&mut self) {}
+    async fn l_in(&mut self) {}
+    async fn l_out(&mut self) {}
+    async fn root_handler(&mut self) {}
+    async fn mid_handler(&mut self) {}
+    async fn leaf_handler(&mut self) {}
+    async fn mid_shadowed(&mut self) {}
     async fn leaf_shadowed(&mut self) {}
-    async fn multi1(&mut self)        {}
-    async fn multi2(&mut self)        {}
-    async fn multi3(&mut self)        {}
+    async fn multi1(&mut self) {}
+    async fn multi2(&mut self) {}
+    async fn multi3(&mut self) {}
 }
 
 const SR: u16 = 0;
@@ -101,174 +101,305 @@ const E_LEAFEV: u16 = 3;
 const E_MULTIACT: u16 = 4;
 
 fn handler_act(state: u16, action: u16) -> TraceEvent {
-    TraceEvent::ActionInvoked { state, action, kind: ActionKind::Handler }
+    TraceEvent::ActionInvoked {
+        state,
+        action,
+        kind: ActionKind::Handler,
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_handler_at_leaf() {
     // Leaf has handler for LeafEv. Bubbling stops at Leaf.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::LeafEv).await;
-        let j = m.take_journal();
-        // Find the EventDelivered for LeafEv.
-        let delivered = j.iter().find(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_LEAFEV, .. }
-        ));
-        assert!(matches!(
-            delivered,
-            Some(TraceEvent::EventDelivered { handler_state: SL, event: E_LEAFEV })
-        ), "LeafEv must be delivered to Leaf, got: {:?}", delivered);
-        // The handler action must fire.
-        let saw_handler = j.iter().any(|e| matches!(
-            e,
-            TraceEvent::ActionInvoked { state: SL, action: A_LEAF_HANDLER, kind: ActionKind::Handler }
-        ));
-        assert!(saw_handler, "leaf_handler must run");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::LeafEv).await;
+            let j = m.take_journal();
+            // Find the EventDelivered for LeafEv.
+            let delivered = j.iter().find(|e| {
+                matches!(
+                    e,
+                    TraceEvent::EventDelivered {
+                        event: E_LEAFEV,
+                        ..
+                    }
+                )
+            });
+            assert!(
+                matches!(
+                    delivered,
+                    Some(TraceEvent::EventDelivered {
+                        handler_state: SL,
+                        event: E_LEAFEV
+                    })
+                ),
+                "LeafEv must be delivered to Leaf, got: {:?}",
+                delivered
+            );
+            // The handler action must fire.
+            let saw_handler = j.iter().any(|e| {
+                matches!(
+                    e,
+                    TraceEvent::ActionInvoked {
+                        state: SL,
+                        action: A_LEAF_HANDLER,
+                        kind: ActionKind::Handler
+                    }
+                )
+            });
+            assert!(saw_handler, "leaf_handler must run");
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_event_bubbles_to_parent() {
     // Leaf has no handler for MidEv. Bubble to Mid.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::MidEv).await;
-        let j = m.take_journal();
-        let delivered = j.iter().find(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_MIDEV, .. }
-        ));
-        assert!(matches!(
-            delivered,
-            Some(TraceEvent::EventDelivered { handler_state: SM, event: E_MIDEV })
-        ), "MidEv must be delivered to Mid, got: {:?}", delivered);
-        assert_eq!(j.iter().filter(|e| matches!(
-            e, TraceEvent::ActionInvoked { action: A_MID_HANDLER, .. }
-        )).count(), 1);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::MidEv).await;
+            let j = m.take_journal();
+            let delivered = j
+                .iter()
+                .find(|e| matches!(e, TraceEvent::EventDelivered { event: E_MIDEV, .. }));
+            assert!(
+                matches!(
+                    delivered,
+                    Some(TraceEvent::EventDelivered {
+                        handler_state: SM,
+                        event: E_MIDEV
+                    })
+                ),
+                "MidEv must be delivered to Mid, got: {:?}",
+                delivered
+            );
+            assert_eq!(
+                j.iter()
+                    .filter(|e| matches!(
+                        e,
+                        TraceEvent::ActionInvoked {
+                            action: A_MID_HANDLER,
+                            ..
+                        }
+                    ))
+                    .count(),
+                1
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_event_bubbles_to_root() {
     // Neither Leaf nor Mid handles RootEv. Bubble to Root.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::RootEv).await;
-        let j = m.take_journal();
-        let delivered = j.iter().find(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_ROOTEV, .. }
-        ));
-        assert!(matches!(
-            delivered,
-            Some(TraceEvent::EventDelivered { handler_state: SR, event: E_ROOTEV })
-        ), "RootEv must be delivered to Root, got: {:?}", delivered);
-        assert_eq!(j.iter().filter(|e| matches!(
-            e, TraceEvent::ActionInvoked { action: A_ROOT_HANDLER, .. }
-        )).count(), 1);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::RootEv).await;
+            let j = m.take_journal();
+            let delivered = j.iter().find(|e| {
+                matches!(
+                    e,
+                    TraceEvent::EventDelivered {
+                        event: E_ROOTEV,
+                        ..
+                    }
+                )
+            });
+            assert!(
+                matches!(
+                    delivered,
+                    Some(TraceEvent::EventDelivered {
+                        handler_state: SR,
+                        event: E_ROOTEV
+                    })
+                ),
+                "RootEv must be delivered to Root, got: {:?}",
+                delivered
+            );
+            assert_eq!(
+                j.iter()
+                    .filter(|e| matches!(
+                        e,
+                        TraceEvent::ActionInvoked {
+                            action: A_ROOT_HANDLER,
+                            ..
+                        }
+                    ))
+                    .count(),
+                1
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_unknown_event_dropped() {
     // No state handles Unknown. Spec: "the event is silently discarded."
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::Unknown).await;
-        let j = m.take_journal();
-        // Must contain an EventDropped for Unknown.
-        let dropped = j.iter().any(|e| matches!(e, TraceEvent::EventDropped { .. }));
-        assert!(dropped, "unhandled Unknown must be journaled as EventDropped");
-        // No EventDelivered for it.
-        let delivered_count = j.iter().filter(|e| matches!(
-            e, TraceEvent::EventDelivered { .. }
-        )).count();
-        // No EventDelivered should fire at all (we only sent Unknown).
-        assert_eq!(delivered_count, 0,
-            "Unknown must not be delivered; got: {:?}", j);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::Unknown).await;
+            let j = m.take_journal();
+            // Must contain an EventDropped for Unknown.
+            let dropped = j
+                .iter()
+                .any(|e| matches!(e, TraceEvent::EventDropped { .. }));
+            assert!(
+                dropped,
+                "unhandled Unknown must be journaled as EventDropped"
+            );
+            // No EventDelivered for it.
+            let delivered_count = j
+                .iter()
+                .filter(|e| matches!(e, TraceEvent::EventDelivered { .. }))
+                .count();
+            // No EventDelivered should fire at all (we only sent Unknown).
+            assert_eq!(
+                delivered_count, 0,
+                "Unknown must not be delivered; got: {:?}",
+                j
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_leaf_shadows_parent() {
     // Both Leaf and Mid have handlers for Shadowed. Leaf wins (search starts there).
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::Shadowed).await;
-        let j = m.take_journal();
-        let leaf_fired = j.iter().any(|e| matches!(
-            e, TraceEvent::ActionInvoked { action: A_LEAF_SHADOWED, .. }
-        ));
-        let mid_fired = j.iter().any(|e| matches!(
-            e, TraceEvent::ActionInvoked { action: A_MID_SHADOWED, .. }
-        ));
-        assert!(leaf_fired, "leaf_shadowed must fire (innermost wins)");
-        assert!(!mid_fired, "mid_shadowed must NOT fire (shadowed by leaf)");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::Shadowed).await;
+            let j = m.take_journal();
+            let leaf_fired = j.iter().any(|e| {
+                matches!(
+                    e,
+                    TraceEvent::ActionInvoked {
+                        action: A_LEAF_SHADOWED,
+                        ..
+                    }
+                )
+            });
+            let mid_fired = j.iter().any(|e| {
+                matches!(
+                    e,
+                    TraceEvent::ActionInvoked {
+                        action: A_MID_SHADOWED,
+                        ..
+                    }
+                )
+            });
+            assert!(leaf_fired, "leaf_shadowed must fire (innermost wins)");
+            assert!(!mid_fired, "mid_shadowed must NOT fire (shadowed by leaf)");
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_multiple_handlers_declaration_order() {
     // Leaf has three actions for MultiAct. They must fire in declaration order.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::MultiAct).await;
-        let order: Vec<u16> = m.take_journal().iter().filter_map(|e| match e {
-            TraceEvent::ActionInvoked { action, kind: ActionKind::Handler, .. } => Some(*action),
-            _ => None,
-        }).collect();
-        assert_eq!(order, vec![A_MULTI1, A_MULTI2, A_MULTI3],
-            "multi-action handlers must fire in declaration order");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::MultiAct).await;
+            let order: Vec<u16> = m
+                .take_journal()
+                .iter()
+                .filter_map(|e| match e {
+                    TraceEvent::ActionInvoked {
+                        action,
+                        kind: ActionKind::Handler,
+                        ..
+                    } => Some(*action),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                order,
+                vec![A_MULTI1, A_MULTI2, A_MULTI3],
+                "multi-action handlers must fire in declaration order"
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_handler_state_recorded_correctly() {
     // EventDelivered.handler_state must reflect WHERE the handler matched, not
     // where the event was sent.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::MidEv).await;
-        let _ = m.dispatch(Ev::RootEv).await;
-        let j = m.take_journal();
-        let mid_delivered = j.iter().find(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_MIDEV, .. }
-        ));
-        let root_delivered = j.iter().find(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_ROOTEV, .. }
-        ));
-        assert!(matches!(mid_delivered, Some(TraceEvent::EventDelivered { handler_state: SM, .. })));
-        assert!(matches!(root_delivered, Some(TraceEvent::EventDelivered { handler_state: SR, .. })));
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::MidEv).await;
+            let _ = m.dispatch(Ev::RootEv).await;
+            let j = m.take_journal();
+            let mid_delivered = j
+                .iter()
+                .find(|e| matches!(e, TraceEvent::EventDelivered { event: E_MIDEV, .. }));
+            let root_delivered = j.iter().find(|e| {
+                matches!(
+                    e,
+                    TraceEvent::EventDelivered {
+                        event: E_ROOTEV,
+                        ..
+                    }
+                )
+            });
+            assert!(matches!(
+                mid_delivered,
+                Some(TraceEvent::EventDelivered {
+                    handler_state: SM,
+                    ..
+                })
+            ));
+            assert!(matches!(
+                root_delivered,
+                Some(TraceEvent::EventDelivered {
+                    handler_state: SR,
+                    ..
+                })
+            ));
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_multiple_unknown_events_each_dropped() {
     // Three unknowns — three EventDropped events.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Bub::new(Ctx);
-        let _ = m.dispatch(Ev::Unknown).await;
-        let _ = m.dispatch(Ev::Unknown).await;
-        let _ = m.dispatch(Ev::Unknown).await;
-        let dropped_count = m.journal().iter().filter(|e| matches!(
-            e, TraceEvent::EventDropped { .. }
-        )).count();
-        assert_eq!(dropped_count, 3);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Bub::new(Ctx);
+            let _ = m.dispatch(Ev::Unknown).await;
+            let _ = m.dispatch(Ev::Unknown).await;
+            let _ = m.dispatch(Ev::Unknown).await;
+            let dropped_count = m
+                .journal()
+                .iter()
+                .filter(|e| matches!(e, TraceEvent::EventDropped { .. }))
+                .count();
+            assert_eq!(dropped_count, 3);
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_bub_byte_deterministic_under_mixed_events() {
     let run = || async {
-        tokio::task::LocalSet::new().run_until(async {
-            let mut m = Bub::new(Ctx);
-            let _ = m.dispatch(Ev::LeafEv).await;
-            let _ = m.dispatch(Ev::MidEv).await;
-            let _ = m.dispatch(Ev::Unknown).await;
-            let _ = m.dispatch(Ev::Shadowed).await;
-            let _ = m.dispatch(Ev::MultiAct).await;
-            let _ = m.dispatch(Ev::RootEv).await;
-            m.take_journal()
-        }).await
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut m = Bub::new(Ctx);
+                let _ = m.dispatch(Ev::LeafEv).await;
+                let _ = m.dispatch(Ev::MidEv).await;
+                let _ = m.dispatch(Ev::Unknown).await;
+                let _ = m.dispatch(Ev::Shadowed).await;
+                let _ = m.dispatch(Ev::MultiAct).await;
+                let _ = m.dispatch(Ev::RootEv).await;
+                m.take_journal()
+            })
+            .await
     };
     let first = run().await;
     for i in 1..15 {

@@ -40,7 +40,8 @@
 //!    macro changes to thread Creusot attributes through.
 //! 5. (later) `step()` end-to-end determinism.
 
-#![cfg_attr(not(test), no_std)]
+// Verification is a dev-time concern — no need for no_std here. We
+// use `std::vec::Vec` (via creusot-std's specs) directly.
 
 pub mod event_queue;
 pub mod timer_table;

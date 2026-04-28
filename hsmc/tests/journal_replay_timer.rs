@@ -37,34 +37,57 @@ statechart! {
 }
 
 impl TimerProbeActions for TimerProbeActionContext<'_> {
-    async fn noop(&mut self)  {}
+    async fn noop(&mut self) {}
     async fn noop2(&mut self) {}
     async fn noop3(&mut self) {}
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn timer_arm_then_cancel_journals_both() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = TimerProbe::new(Ctx::default());
-        let _ = m.dispatch(Ev::Stop).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = TimerProbe::new(Ctx::default());
+            let _ = m.dispatch(Ev::Stop).await;
 
-        let timer_events: Vec<&TraceEvent> = m.journal().iter()
-            .filter(|e| matches!(
-                e,
-                TraceEvent::TimerArmed { .. }
-                    | TraceEvent::TimerCancelled { .. }
-                    | TraceEvent::TimerFired { .. }
-            ))
-            .collect();
+            let timer_events: Vec<&TraceEvent> = m
+                .journal()
+                .iter()
+                .filter(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TimerArmed { .. }
+                            | TraceEvent::TimerCancelled { .. }
+                            | TraceEvent::TimerFired { .. }
+                    )
+                })
+                .collect();
 
-        assert_eq!(timer_events.len(), 2, "expected 2 timer events, got {:?}", timer_events);
-        assert!(matches!(
-            timer_events[0],
-            TraceEvent::TimerArmed { state: 1, timer: 0, ns: 100_000_000 }
-        ), "got {:?}", timer_events[0]);
-        assert!(matches!(
-            timer_events[1],
-            TraceEvent::TimerCancelled { state: 1, timer: 0 }
-        ), "got {:?}", timer_events[1]);
-    }).await;
+            assert_eq!(
+                timer_events.len(),
+                2,
+                "expected 2 timer events, got {:?}",
+                timer_events
+            );
+            assert!(
+                matches!(
+                    timer_events[0],
+                    TraceEvent::TimerArmed {
+                        state: 1,
+                        timer: 0,
+                        ns: 100_000_000
+                    }
+                ),
+                "got {:?}",
+                timer_events[0]
+            );
+            assert!(
+                matches!(
+                    timer_events[1],
+                    TraceEvent::TimerCancelled { state: 1, timer: 0 }
+                ),
+                "got {:?}",
+                timer_events[1]
+            );
+        })
+        .await;
 }

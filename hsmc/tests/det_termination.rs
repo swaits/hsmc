@@ -47,13 +47,13 @@ statechart! {
 }
 
 impl TermActions for TermActionContext<'_> {
-    async fn r_in(&mut self)     {}
-    async fn r_out(&mut self)    {}
-    async fn m_in(&mut self)     {}
-    async fn m_out(&mut self)    {}
-    async fn l_in(&mut self)     {}
-    async fn l_out(&mut self)    {}
-    async fn log_other(&mut self){}
+    async fn r_in(&mut self) {}
+    async fn r_out(&mut self) {}
+    async fn m_in(&mut self) {}
+    async fn m_out(&mut self) {}
+    async fn l_in(&mut self) {}
+    async fn l_out(&mut self) {}
+    async fn log_other(&mut self) {}
 }
 
 const SR: u16 = 0;
@@ -67,77 +67,110 @@ const E_HALT: u16 = 1;
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_records_terminate_requested() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        let j = m.take_journal();
-        // TerminateRequested fires before the bottom-up exits.
-        let req_idx = j.iter().position(|e| matches!(
-            e, TraceEvent::TerminateRequested { event: E_HALT }
-        ));
-        assert!(req_idx.is_some(), "TerminateRequested must appear, got: {:?}", j);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            let j = m.take_journal();
+            // TerminateRequested fires before the bottom-up exits.
+            let req_idx = j
+                .iter()
+                .position(|e| matches!(e, TraceEvent::TerminateRequested { event: E_HALT }));
+            assert!(
+                req_idx.is_some(),
+                "TerminateRequested must appear, got: {:?}",
+                j
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_exits_bottom_up() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        let exits: Vec<u16> = m.journal().iter().filter_map(|e| match e {
-            TraceEvent::Exited { state } => Some(*state),
-            _ => None,
-        }).collect();
-        assert_eq!(exits, vec![SL, SM, SR], "termination exits inner-to-outer");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            let exits: Vec<u16> = m
+                .journal()
+                .iter()
+                .filter_map(|e| match e {
+                    TraceEvent::Exited { state } => Some(*state),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(exits, vec![SL, SM, SR], "termination exits inner-to-outer");
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_terminated_is_last() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        assert!(matches!(m.journal().last(), Some(TraceEvent::Terminated)));
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            assert!(matches!(m.journal().last(), Some(TraceEvent::Terminated)));
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_dispatch_after_returns_already_terminated() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        let res = m.dispatch(Ev::Other).await;
-        assert!(matches!(res, Err(HsmcError::AlreadyTerminated)),
-            "dispatch after terminate must return AlreadyTerminated, got {:?}", res);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            let res = m.dispatch(Ev::Other).await;
+            assert!(
+                matches!(res, Err(HsmcError::AlreadyTerminated)),
+                "dispatch after terminate must return AlreadyTerminated, got {:?}",
+                res
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_journal_unchanged_by_post_term_dispatch() {
     // Calling dispatch after terminate must not journal anything new.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        let len_before = m.journal().len();
-        let _ = m.dispatch(Ev::Other).await;
-        let len_after = m.journal().len();
-        assert_eq!(len_before, len_after,
-            "journal length must not change after termination");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            let len_before = m.journal().len();
+            let _ = m.dispatch(Ev::Other).await;
+            let len_after = m.journal().len();
+            assert_eq!(
+                len_before, len_after,
+                "journal length must not change after termination"
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_exit_actions_run_in_order() {
     // Spec: exit actions inner-to-outer.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Halt).await;
-        let exit_actions: Vec<u16> = m.journal().iter().filter_map(|e| match e {
-            TraceEvent::ActionInvoked { state, kind: ActionKind::Exit, .. } => Some(*state),
-            _ => None,
-        }).collect();
-        assert_eq!(exit_actions, vec![SL, SM, SR]);
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Halt).await;
+            let exit_actions: Vec<u16> = m
+                .journal()
+                .iter()
+                .filter_map(|e| match e {
+                    TraceEvent::ActionInvoked {
+                        state,
+                        kind: ActionKind::Exit,
+                        ..
+                    } => Some(*state),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(exit_actions, vec![SL, SM, SR]);
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
@@ -145,35 +178,39 @@ async fn det_terminate_other_event_processed_before_halt() {
     // Other is dispatched first, then Halt. Other is delivered, then Halt
     // triggers termination. EventDelivered for Other appears, but no
     // EventDelivered for Halt — instead, TerminateRequested.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Term::new(Ctx);
-        let _ = m.dispatch(Ev::Other).await;
-        let _ = m.dispatch(Ev::Halt).await;
-        let j = m.take_journal();
-        let other_delivered = j.iter().any(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_OTHER, .. }
-        ));
-        let halt_delivered = j.iter().any(|e| matches!(
-            e, TraceEvent::EventDelivered { event: E_HALT, .. }
-        ));
-        let halt_requested = j.iter().any(|e| matches!(
-            e, TraceEvent::TerminateRequested { event: E_HALT }
-        ));
-        assert!(other_delivered, "Other must be delivered");
-        assert!(!halt_delivered, "Halt does not go through EventDelivered");
-        assert!(halt_requested, "Halt goes through TerminateRequested");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Term::new(Ctx);
+            let _ = m.dispatch(Ev::Other).await;
+            let _ = m.dispatch(Ev::Halt).await;
+            let j = m.take_journal();
+            let other_delivered = j
+                .iter()
+                .any(|e| matches!(e, TraceEvent::EventDelivered { event: E_OTHER, .. }));
+            let halt_delivered = j
+                .iter()
+                .any(|e| matches!(e, TraceEvent::EventDelivered { event: E_HALT, .. }));
+            let halt_requested = j
+                .iter()
+                .any(|e| matches!(e, TraceEvent::TerminateRequested { event: E_HALT }));
+            assert!(other_delivered, "Other must be delivered");
+            assert!(!halt_delivered, "Halt does not go through EventDelivered");
+            assert!(halt_requested, "Halt goes through TerminateRequested");
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_terminate_byte_deterministic() {
     let run = || async {
-        tokio::task::LocalSet::new().run_until(async {
-            let mut m = Term::new(Ctx);
-            let _ = m.dispatch(Ev::Other).await;
-            let _ = m.dispatch(Ev::Halt).await;
-            m.take_journal()
-        }).await
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let mut m = Term::new(Ctx);
+                let _ = m.dispatch(Ev::Other).await;
+                let _ = m.dispatch(Ev::Halt).await;
+                m.take_journal()
+            })
+            .await
     };
     let first = run().await;
     for i in 1..10 {

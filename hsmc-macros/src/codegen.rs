@@ -30,12 +30,19 @@ fn compute_chart_hash(ir: &Ir) -> u64 {
     for s in &ir.states {
         feed(&s.id.to_le_bytes());
         feed(s.name.to_string().as_bytes());
-        feed(&[s.parent.unwrap_or(u16::MAX).to_le_bytes()[0], s.parent.unwrap_or(u16::MAX).to_le_bytes()[1]]);
+        feed(&[
+            s.parent.unwrap_or(u16::MAX).to_le_bytes()[0],
+            s.parent.unwrap_or(u16::MAX).to_le_bytes()[1],
+        ]);
         feed(&s.depth.to_le_bytes());
         feed(&s.default_child.unwrap_or(u16::MAX).to_le_bytes());
-        for &aid in &s.entries { feed(&aid.to_le_bytes()); }
+        for &aid in &s.entries {
+            feed(&aid.to_le_bytes());
+        }
         feed(&[0xee]); // separator: entries → exits
-        for &aid in &s.exits { feed(&aid.to_le_bytes()); }
+        for &aid in &s.exits {
+            feed(&aid.to_le_bytes());
+        }
         feed(&[0xff]); // separator: exits → handlers
         for h_ir in &s.handlers {
             match &h_ir.trigger {
@@ -63,7 +70,9 @@ fn compute_chart_hash(ir: &Ir) -> u64 {
             }
         }
         feed(&[0xfe]); // separator: handlers → timers
-        for &t in &s.owned_timers { feed(&t.to_le_bytes()); }
+        for &t in &s.owned_timers {
+            feed(&t.to_le_bytes());
+        }
         feed(&[0xfd]); // separator: timers → durings
         feed(&(s.durings.len() as u16).to_le_bytes());
     }

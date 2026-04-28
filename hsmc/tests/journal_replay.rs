@@ -52,14 +52,14 @@ statechart! {
 }
 
 impl ReplayActions for ReplayActionContext<'_> {
-    async fn root_in(&mut self)    {}
-    async fn root_out(&mut self)   {}
-    async fn idle_in(&mut self)    {}
-    async fn idle_out(&mut self)   {}
-    async fn active_in(&mut self)  {}
+    async fn root_in(&mut self) {}
+    async fn root_out(&mut self) {}
+    async fn idle_in(&mut self) {}
+    async fn idle_out(&mut self) {}
+    async fn active_in(&mut self) {}
     async fn active_out(&mut self) {}
-    async fn sub_in(&mut self)     {}
-    async fn sub_out(&mut self)    {}
+    async fn sub_in(&mut self) {}
+    async fn sub_out(&mut self) {}
 }
 
 // State indices.
@@ -84,46 +84,92 @@ const E_HALT: u16 = 1;
 
 #[tokio::test(flavor = "current_thread")]
 async fn replay_full_lifecycle_matches_expected() {
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Replay::new(Ctx::default());
-        let _ = m.dispatch(Ev::Go).await;
-        let _ = m.dispatch(Ev::Halt).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Replay::new(Ctx::default());
+            let _ = m.dispatch(Ev::Go).await;
+            let _ = m.dispatch(Ev::Halt).await;
 
-        let actual = m.take_journal();
+            let actual = m.take_journal();
 
-        let expected: Vec<TraceEvent> = vec![
-            // ── First step: enter the chart ──
-            TraceEvent::Started { chart_hash: Replay::<8>::CHART_HASH },
-            TraceEvent::Entered { state: ST_ROOT },
-            TraceEvent::ActionInvoked { state: ST_ROOT, action: A_ROOT_IN, kind: ActionKind::Entry },
-            TraceEvent::Entered { state: ST_IDLE },
-            TraceEvent::ActionInvoked { state: ST_IDLE, action: A_IDLE_IN, kind: ActionKind::Entry },
+            let expected: Vec<TraceEvent> = vec![
+                // ── First step: enter the chart ──
+                TraceEvent::Started {
+                    chart_hash: Replay::<8>::CHART_HASH,
+                },
+                TraceEvent::Entered { state: ST_ROOT },
+                TraceEvent::ActionInvoked {
+                    state: ST_ROOT,
+                    action: A_ROOT_IN,
+                    kind: ActionKind::Entry,
+                },
+                TraceEvent::Entered { state: ST_IDLE },
+                TraceEvent::ActionInvoked {
+                    state: ST_IDLE,
+                    action: A_IDLE_IN,
+                    kind: ActionKind::Entry,
+                },
+                // ── Go event delivered to Idle, transition to Active → Sub ──
+                TraceEvent::EventDelivered {
+                    handler_state: ST_IDLE,
+                    event: E_GO,
+                },
+                TraceEvent::TransitionFired {
+                    from: Some(ST_IDLE),
+                    to: ST_ACTIVE,
+                },
+                TraceEvent::ActionInvoked {
+                    state: ST_IDLE,
+                    action: A_IDLE_OUT,
+                    kind: ActionKind::Exit,
+                },
+                TraceEvent::Exited { state: ST_IDLE },
+                TraceEvent::Entered { state: ST_ACTIVE },
+                TraceEvent::ActionInvoked {
+                    state: ST_ACTIVE,
+                    action: A_ACTIVE_IN,
+                    kind: ActionKind::Entry,
+                },
+                TraceEvent::Entered { state: ST_SUB },
+                TraceEvent::ActionInvoked {
+                    state: ST_SUB,
+                    action: A_SUB_IN,
+                    kind: ActionKind::Entry,
+                },
+                // ── Halt event triggers termination: exit Sub → Active → root, then Terminated ──
+                TraceEvent::TerminateRequested { event: E_HALT },
+                TraceEvent::ActionInvoked {
+                    state: ST_SUB,
+                    action: A_SUB_OUT,
+                    kind: ActionKind::Exit,
+                },
+                TraceEvent::Exited { state: ST_SUB },
+                TraceEvent::ActionInvoked {
+                    state: ST_ACTIVE,
+                    action: A_ACTIVE_OUT,
+                    kind: ActionKind::Exit,
+                },
+                TraceEvent::Exited { state: ST_ACTIVE },
+                TraceEvent::ActionInvoked {
+                    state: ST_ROOT,
+                    action: A_ROOT_OUT,
+                    kind: ActionKind::Exit,
+                },
+                TraceEvent::Exited { state: ST_ROOT },
+                TraceEvent::Terminated,
+            ];
 
-            // ── Go event delivered to Idle, transition to Active → Sub ──
-            TraceEvent::EventDelivered { handler_state: ST_IDLE, event: E_GO },
-            TraceEvent::TransitionFired { from: Some(ST_IDLE), to: ST_ACTIVE },
-            TraceEvent::ActionInvoked { state: ST_IDLE, action: A_IDLE_OUT, kind: ActionKind::Exit },
-            TraceEvent::Exited { state: ST_IDLE },
-            TraceEvent::Entered { state: ST_ACTIVE },
-            TraceEvent::ActionInvoked { state: ST_ACTIVE, action: A_ACTIVE_IN, kind: ActionKind::Entry },
-            TraceEvent::Entered { state: ST_SUB },
-            TraceEvent::ActionInvoked { state: ST_SUB, action: A_SUB_IN, kind: ActionKind::Entry },
-
-            // ── Halt event triggers termination: exit Sub → Active → root, then Terminated ──
-            TraceEvent::TerminateRequested { event: E_HALT },
-            TraceEvent::ActionInvoked { state: ST_SUB, action: A_SUB_OUT, kind: ActionKind::Exit },
-            TraceEvent::Exited { state: ST_SUB },
-            TraceEvent::ActionInvoked { state: ST_ACTIVE, action: A_ACTIVE_OUT, kind: ActionKind::Exit },
-            TraceEvent::Exited { state: ST_ACTIVE },
-            TraceEvent::ActionInvoked { state: ST_ROOT, action: A_ROOT_OUT, kind: ActionKind::Exit },
-            TraceEvent::Exited { state: ST_ROOT },
-            TraceEvent::Terminated,
-        ];
-
-        let mismatch_at = actual.iter().zip(expected.iter())
-            .position(|(a, e)| a != e)
-            .map(|i| i.to_string())
-            .unwrap_or_else(|| "<length-mismatch>".to_string());
-        assert_eq!(actual, expected, "journal divergence at index {}", mismatch_at);
-    }).await;
+            let mismatch_at = actual
+                .iter()
+                .zip(expected.iter())
+                .position(|(a, e)| a != e)
+                .map(|i| i.to_string())
+                .unwrap_or_else(|| "<length-mismatch>".to_string());
+            assert_eq!(
+                actual, expected,
+                "journal divergence at index {}",
+                mismatch_at
+            );
+        })
+        .await;
 }

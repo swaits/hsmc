@@ -284,12 +284,6 @@ pub mod __private {
         pub fn clear(&mut self) {
             self.events.clear();
         }
-        pub fn len(&self) -> usize {
-            self.events.len()
-        }
-        pub fn is_empty(&self) -> bool {
-            self.events.is_empty()
-        }
     }
 
     #[cfg(not(feature = "journal"))]

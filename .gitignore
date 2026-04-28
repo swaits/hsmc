@@ -13,6 +13,14 @@ mutation_history.json
 # Why3 to read. Regenerated on every `just verify` run.
 /verif/
 
+# Creusot/why3find config — `cargo creusot init` regenerates with
+# defaults appropriate to the local prover install. The `profile`
+# section caches per-machine prover timings that aren't portable.
+# `just verify` regenerates if missing.
+/why3find.json
+# why3find's per-run cache directory.
+/.why3find/
+
 # Project-local Python venv created by mise's `_.python.venv` config.
 **/.venv/
 

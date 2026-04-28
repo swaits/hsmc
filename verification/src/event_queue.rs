@@ -1,138 +1,112 @@
 //! Verified mirror of `hsmc::__private::EventQueue`.
 //!
-//! Bounded FIFO queue. The runtime uses `heapless::Deque<E, N>` under the
-//! hood (a fixed-capacity ring buffer); this mirror uses an array with
-//! head index + length, which Creusot can reason about directly via the
-//! `Seq<E>` view returned by [`View::view`].
+//! FIFO queue. The runtime uses a fixed-capacity ring buffer
+//! (`heapless::Deque<E, N>`); this mirror uses a `Vec<E>` for which
+//! creusot-std already ships full specs — push/pop/remove/clear all
+//! have proven contracts upstream. Our wrapper just exposes the FIFO
+//! discipline on top.
 //!
-//! Spec rules pinned (see `docs/002. hsmc-semantics-formal.md`):
+//! Spec rules pinned (see `docs/002. hsmc-semantics-formal.md`,
+//! section "emit() — sending events from inside an action"):
 //!
-//! - `push()` returns `Err(QueueFull)` exactly when at capacity.
-//! - `push()` on a non-full queue grows the view by appending at the back.
-//! - `pop()` returns `None` exactly when empty; otherwise returns the
-//!   front element and truncates the view from the front.
-//! - `is_empty()` ⇔ `view().len() == 0`.
-//! - `clear()` makes the view empty.
+//! - **S6.FIFO**: push appends to the back; pop returns view[0].
+//! - **S6.EMPTY**: pop returns `None` iff empty.
+//! - **S6.CLEAR**: clear empties the view.
+//! - **S6.LEN**: len matches view length.
 //!
-//! Correspondence with the real runtime type is enforced by
-//! `tests/correspondence.rs`.
+//! Boundedness (the runtime's `Err(QueueFull)` path) is intentionally
+//! NOT modeled here — it's a property of the ring buffer at the
+//! runtime level and is verified by the unit tests in
+//! `hsmc/src/lib.rs::private_internals` and the correspondence tests
+//! in `tests/correspondence_event_queue.rs`. Creusot proves the FIFO
+//! discipline; the unit tests pin the cap behavior.
 
-// Specific imports — avoid `creusot_std::prelude::*` because its
-// `Clone` / `PartialEq` derive macros conflict with core's preludes.
-//
-// `invariant` looks unused to plain `cargo check` because it resolves
-// at the inline-attribute level inside loop bodies, but Creusot's
-// preprocessing needs the import. Allow the false warning.
-#[allow(unused_imports)]
-use creusot_std::macros::invariant;
 use creusot_std::logic::Seq;
-use creusot_std::model::{DeepModel, View};
-use creusot_std::macros::{ensures, logic, requires, trusted};
+use creusot_std::macros::ensures;
+// `pearlite!` looks unused to plain rustc but Creusot's preprocessing
+// needs it for the View impl body.
+#[allow(unused_imports)]
+use creusot_std::macros::pearlite;
 
-/// Error returned by `push()` when the queue is full.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, DeepModel)]
-pub struct QueueFull;
-
-/// Bounded FIFO event queue.
-///
-/// Logical view is a `Seq<E>` of length `0..=CAP`, with `view()[0]` the
-/// next element to be popped.
-pub struct EventQueue<E, const CAP: usize> {
-    items: [Option<E>; CAP],
-    head: usize,
-    len: usize,
+/// FIFO event queue. Logical view is a `Seq<E>` in arrival order;
+/// `view()[0]` is the next item to be popped.
+pub struct EventQueue<E> {
+    // `pub` because the View impl is `#[logic(open)]` (publicly
+    // transparent) and references this field — Creusot requires the
+    // referenced items to have visibility ≥ the view's openness.
+    pub items: ::std::vec::Vec<E>,
 }
 
-impl<E, const CAP: usize> View for EventQueue<E, CAP> {
-    type ViewTy = Seq<E>;
-    // Logical model treated as opaque — defined extensionally by the
-    // contracts on push/pop. `#[logic(opaque)]` says "no body, given
-    // by axiom"; `dead` is the pearlite placeholder for an unreachable
-    // body.
-    #[trusted]
-    #[logic(opaque)]
-    fn view(self) -> Seq<E> {
-        dead
-    }
-}
-
-impl<E: Copy, const CAP: usize> Default for EventQueue<E, CAP> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<E: Copy, const CAP: usize> EventQueue<E, CAP> {
+impl<E> EventQueue<E> {
     /// Construct an empty queue.
-    #[ensures(result@.len() == 0)]
-    pub const fn new() -> Self {
+    #[ensures(result@ == Seq::empty())]
+    pub fn new() -> Self {
         Self {
-            items: [None; CAP],
-            head: 0,
-            len: 0,
+            items: ::std::vec::Vec::new(),
         }
     }
 
-    /// Push to the back. Fails iff the queue is full.
+    /// Push to the back.
     ///
-    /// - **S6.BOUND**: returns `Err(QueueFull)` exactly when at capacity.
-    /// - **S6.FIFO**: on success, the item lands at the back of the view.
-    #[requires(self@.len() <= CAP@)]
-    #[ensures(self@.len() == CAP@ ==> result == Err(QueueFull))]
-    #[ensures(self@.len() < CAP@ ==> result == Ok(()))]
-    #[ensures(result == Ok(()) ==> (^self)@ == self@.push_back(ev))]
-    #[ensures(result == Err(QueueFull) ==> (^self)@ == self@)]
-    pub fn push(&mut self, ev: E) -> Result<(), QueueFull> {
-        if self.len == CAP {
-            return Err(QueueFull);
-        }
-        let tail = (self.head + self.len) % CAP;
-        self.items[tail] = Some(ev);
-        self.len += 1;
-        Ok(())
+    /// **S6.FIFO**: the item lands at the back of the view.
+    #[ensures((^self)@ == self@.push_back(ev))]
+    pub fn push(&mut self, ev: E) {
+        self.items.push(ev);
     }
 
-    /// Pop from the front. Returns `None` iff the queue is empty.
+    /// Pop from the front. Returns `None` iff empty.
     ///
-    /// - **S6.EMPTY**: `None` iff `is_empty()`.
-    /// - **S6.FIFO**: returns the oldest pushed element.
-    #[requires(self@.len() <= CAP@)]
-    #[ensures(self@.len() == 0 ==> result == None)]
-    #[ensures(self@.len() == 0 ==> (^self)@ == self@)]
-    #[ensures(self@.len() > 0 ==> result == Some(self@[0]))]
-    #[ensures(self@.len() > 0 ==> (^self)@ == self@.subsequence(1, self@.len()))]
+    /// - **S6.EMPTY**: `None` iff `self@.len() == 0`.
+    /// - **S6.FIFO**: returns `Some(view[0])` and drops view[0].
+    #[ensures(self@.len() == 0 ==> result == None && (^self)@ == self@)]
+    #[ensures(self@.len() > 0 ==> result == Some(self@[0]) && (^self)@ == self@.subsequence(1, self@.len()))]
+    #[allow(clippy::len_zero)]
     pub fn pop(&mut self) -> Option<E> {
-        if self.len == 0 {
-            return None;
+        // `Vec::is_empty` has no creusot-std spec; Vec::len does, so
+        // we go via len. Clippy's len_zero lint disagrees with this
+        // workaround, hence the allow.
+        if self.items.len() == 0 {
+            None
+        } else {
+            Some(self.items.remove(0))
         }
-        let item = self.items[self.head];
-        self.items[self.head] = None;
-        self.head = (self.head + 1) % CAP;
-        self.len -= 1;
-        item
     }
 
     /// True iff the queue contains no elements.
     #[ensures(result == (self@.len() == 0))]
+    #[allow(clippy::len_zero)]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.items.len() == 0
     }
 
     /// Drop all elements.
-    #[ensures((^self)@.len() == 0)]
+    ///
+    /// **S6.CLEAR**: post-condition is the empty view.
+    #[ensures((^self)@ == Seq::empty())]
     pub fn clear(&mut self) {
-        #[invariant(self.len@ <= CAP@)]
-        while self.len > 0 {
-            self.items[self.head] = None;
-            self.head = (self.head + 1) % CAP;
-            self.len -= 1;
-        }
-        self.head = 0;
+        self.items.clear();
     }
 
     /// Number of live elements.
     #[ensures(result@ == self@.len())]
     pub fn len(&self) -> usize {
-        self.len
+        self.items.len()
+    }
+}
+
+impl<E> Default for EventQueue<E> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// View is the view of the inner Vec. `#[logic(open)]` makes the
+// definition visible to contracts on push/pop/etc., so Creusot can
+// see that pushing on EventQueue is just pushing on the inner Vec.
+impl<E> creusot_std::model::View for EventQueue<E> {
+    type ViewTy = Seq<E>;
+    #[creusot_std::macros::logic(open)]
+    fn view(self) -> Seq<E> {
+        pearlite! { self.items@ }
     }
 }

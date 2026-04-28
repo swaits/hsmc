@@ -135,11 +135,14 @@ coverage:
 mutants:
     @echo "Running mutation testing..."
     @echo "⚠️  This will use significant CPU and memory resources!"
+    # `tokio,journal` so journal_* and det_* tests (gated on both
+    # features) actually run — they're what catches mutants in
+    # JournalSink and the codegen-emitted journal hooks.
     cargo mutants \
         --no-shuffle \
         --test-tool nextest \
         --jobs 3 \
-        --features tokio \
+        --features tokio,journal \
         -vV
 
 # Security audit + dependency checks
@@ -159,7 +162,15 @@ miri:
         rustup component add miri --toolchain nightly
     fi
     echo "Running Miri tests for UB detection (no-default-features)..."
-    cargo +nightly miri test --workspace --no-default-features
+    # `--exclude hsmc-macros`: the macro crate's only integration test
+    # is `tests/ui.rs` which uses `trybuild` (compiles fixture files,
+    # globs the filesystem). That hits Miri's isolation sandbox and
+    # tests proc-macro behavior, not UB. Skip it.
+    # `--exclude hsmc-verification`: this crate is built with the
+    # nightly pinned in verification/mise.toml (nightly-2025-11-13);
+    # mixing toolchains under cargo +nightly miri test breaks builds.
+    cargo +nightly miri test --workspace --no-default-features \
+        --exclude hsmc-macros --exclude hsmc-verification
 
 # Run Creusot deductive verification (self-installs opam, Why3, SMT solvers, cargo-creusot on first run).
 [script]
@@ -238,29 +249,34 @@ verify:
     fi
 
     # ── 6. Run the actual verification ───────────────────────────────
-    # We're already cd'd into verification/. mise env set rust to the
-    # pinned nightly.
+    # `cargo creusot prove` invokes why3find which resolves `verif/`
+    # relative to the workspace root (where why3find.json lives). cd
+    # back so the path resolution is correct.
     #
     # Two phases:
     #   `cargo creusot`        — Rust → Coma IR, dumped into verif/
     #   `cargo creusot prove`  — Why3 + SMT solvers discharge VCs
-    #
-    # `prove` exits non-zero when any VC is unproven. We don't `set -e`
-    # past it — unproven VCs are the engineering work, not a hard
-    # error. The exit status is reported at the end.
+    cd ..
+    if [ ! -f why3find.json ]; then
+        printf '  → cargo creusot init (one-time, populates why3find.json)...\n'
+        cargo creusot init || true   # exits non-zero in workspaces but writes the file
+    fi
     printf '\n🚀 cargo creusot (generate Coma IR)...\n'
     cargo creusot
-    printf '\n🚀 cargo creusot prove (discharge VCs via Why3)...\n'
+    printf '\n🚀 cargo creusot prove --no-cache (force SMT solver invocations)...\n'
+    # `--no-cache` skips why3find's per-Coma-file proof cache and
+    # actually invokes alt-ergo + z3 + cvc4 for every VC. The wall-
+    # clock vs CPU-time gap (`time` output) is the parallel SMT work.
     set +e
-    cargo creusot prove
+    time cargo creusot prove --no-cache
     PROVE_RC=$?
     set -e
     if [ "$PROVE_RC" -eq 0 ]; then
-        printf '\n✅ All VCs discharged. See INVARIANTS.md for the rule mapping.\n'
+        printf '\n✅ All VCs discharged. See verification/INVARIANTS.md for the rule mapping.\n'
     else
         printf '\n⚠ Some VCs unproven (cargo creusot prove exit %d).\n' "$PROVE_RC"
-        printf '  Iterate on contracts in src/event_queue.rs / src/timer_table.rs.\n'
-        printf '  Run `cargo creusot prove` directly from verification/ for tighter loop.\n'
+        printf '  Iterate on contracts in verification/src/event_queue.rs / src/timer_table.rs.\n'
+        printf '  For a tighter loop: cargo creusot prove (from workspace root).\n'
     fi
 
 # =============================================================================

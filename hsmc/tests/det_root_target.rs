@@ -52,11 +52,11 @@ statechart! {
 }
 
 impl SubActions for SubActionContext<'_> {
-    async fn r_in(&mut self)  {}
+    async fn r_in(&mut self) {}
     async fn r_out(&mut self) {}
-    async fn a_in(&mut self)  {}
+    async fn a_in(&mut self) {}
     async fn a_out(&mut self) {}
-    async fn b_in(&mut self)  {}
+    async fn b_in(&mut self) {}
     async fn b_out(&mut self) {}
 }
 
@@ -72,71 +72,111 @@ const A_B_OUT: u16 = 5;
 const E_UPTOROOT: u16 = 0;
 
 fn entry(state: u16, action: u16) -> TraceEvent {
-    TraceEvent::ActionInvoked { state, action, kind: ActionKind::Entry }
+    TraceEvent::ActionInvoked {
+        state,
+        action,
+        kind: ActionKind::Entry,
+    }
 }
 fn exit_(state: u16, action: u16) -> TraceEvent {
-    TraceEvent::ActionInvoked { state, action, kind: ActionKind::Exit }
+    TraceEvent::ActionInvoked {
+        state,
+        action,
+        kind: ActionKind::Exit,
+    }
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_root_targetable_by_chart_name() {
     // Chart compiles. Targeting root by chart name resolves correctly.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Sub::new(Ctx);
-        let _ = m.dispatch(Ev::UpToRoot).await;
-        let actual = m.take_journal();
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Sub::new(Ctx);
+            let _ = m.dispatch(Ev::UpToRoot).await;
+            let actual = m.take_journal();
 
-        // Up-transition to root from B: exit B and A. Root is target,
-        // not exited, not re-entered, no default-descent.
-        let expected = vec![
-            TraceEvent::Started { chart_hash: Sub::<8>::CHART_HASH },
-            TraceEvent::Entered { state: SR },
-            entry(SR, A_R_IN),
-            TraceEvent::Entered { state: SA },
-            entry(SA, A_A_IN),
-            TraceEvent::Entered { state: SB },
-            entry(SB, A_B_IN),
-            TraceEvent::EventDelivered { handler_state: SB, event: E_UPTOROOT },
-            TraceEvent::TransitionFired { from: Some(SB), to: SR },
-            exit_(SB, A_B_OUT),
-            TraceEvent::Exited { state: SB },
-            exit_(SA, A_A_OUT),
-            TraceEvent::Exited { state: SA },
-        ];
+            // Up-transition to root from B: exit B and A. Root is target,
+            // not exited, not re-entered, no default-descent.
+            let expected = vec![
+                TraceEvent::Started {
+                    chart_hash: Sub::<8>::CHART_HASH,
+                },
+                TraceEvent::Entered { state: SR },
+                entry(SR, A_R_IN),
+                TraceEvent::Entered { state: SA },
+                entry(SA, A_A_IN),
+                TraceEvent::Entered { state: SB },
+                entry(SB, A_B_IN),
+                TraceEvent::EventDelivered {
+                    handler_state: SB,
+                    event: E_UPTOROOT,
+                },
+                TraceEvent::TransitionFired {
+                    from: Some(SB),
+                    to: SR,
+                },
+                exit_(SB, A_B_OUT),
+                TraceEvent::Exited { state: SB },
+                exit_(SA, A_A_OUT),
+                TraceEvent::Exited { state: SA },
+            ];
 
-        assert_eq!(actual, expected, "root targetable; up-transition to root exits A and B only");
-    }).await;
+            assert_eq!(
+                actual, expected,
+                "root targetable; up-transition to root exits A and B only"
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_root_target_does_not_re_enter_root() {
     // After the up-to-root, root must NOT have re-entered.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Sub::new(Ctx);
-        let _ = m.dispatch(Ev::UpToRoot).await;
-        let j = m.take_journal();
-        // After the TransitionFired, no Entered event should fire.
-        let split = j.iter().position(|e| matches!(e, TraceEvent::TransitionFired { .. })).unwrap();
-        let entered_after = j[split..].iter().filter(|e| matches!(e, TraceEvent::Entered { .. })).count();
-        assert_eq!(entered_after, 0, "up-to-root must not re-enter root or default-descend");
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Sub::new(Ctx);
+            let _ = m.dispatch(Ev::UpToRoot).await;
+            let j = m.take_journal();
+            // After the TransitionFired, no Entered event should fire.
+            let split = j
+                .iter()
+                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .unwrap();
+            let entered_after = j[split..]
+                .iter()
+                .filter(|e| matches!(e, TraceEvent::Entered { .. }))
+                .count();
+            assert_eq!(
+                entered_after, 0,
+                "up-to-root must not re-enter root or default-descend"
+            );
+        })
+        .await;
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_root_target_then_terminate() {
     // After up-to-root, root is the innermost active state. Terminate exits root only.
-    tokio::task::LocalSet::new().run_until(async {
-        let mut m = Sub::new(Ctx);
-        let _ = m.dispatch(Ev::UpToRoot).await;
-        let _ = m.dispatch(Ev::Halt).await;
-        let j = m.take_journal();
-        // After UpToRoot we're in root only. Halt exits root only.
-        let exits: Vec<u16> = j.iter().filter_map(|e| match e {
-            TraceEvent::Exited { state } => Some(*state),
-            _ => None,
-        }).collect();
-        assert_eq!(exits, vec![SB, SA, SR],
-            "up-to-root exits B, A; terminate exits root");
-        assert!(matches!(j.last(), Some(TraceEvent::Terminated)));
-    }).await;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let mut m = Sub::new(Ctx);
+            let _ = m.dispatch(Ev::UpToRoot).await;
+            let _ = m.dispatch(Ev::Halt).await;
+            let j = m.take_journal();
+            // After UpToRoot we're in root only. Halt exits root only.
+            let exits: Vec<u16> = j
+                .iter()
+                .filter_map(|e| match e {
+                    TraceEvent::Exited { state } => Some(*state),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                exits,
+                vec![SB, SA, SR],
+                "up-to-root exits B, A; terminate exits root"
+            );
+            assert!(matches!(j.last(), Some(TraceEvent::Terminated)));
+        })
+        .await;
 }
