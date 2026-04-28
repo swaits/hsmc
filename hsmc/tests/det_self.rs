@@ -13,7 +13,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -86,11 +86,14 @@ fn initial_descent() -> Vec<TraceEvent> {
         TraceEvent::Started {
             chart_hash: Self_::<8>::CHART_HASH,
         },
+        TraceEvent::EnterBegan { state: SR },
         TraceEvent::Entered { state: SR },
-        TraceEvent::Entered { state: SM },
+        TraceEvent::EnterBegan { state: SM },
         entry(SM, A_M_IN),
-        TraceEvent::Entered { state: SL },
+        TraceEvent::Entered { state: SM },
+        TraceEvent::EnterBegan { state: SL },
         entry(SL, A_L_IN),
+        TraceEvent::Entered { state: SL },
     ]
 }
 fn assert_journal(actual: &[TraceEvent], expected: &[TraceEvent]) {
@@ -123,6 +126,7 @@ async fn det_self_leaf_exits_and_reenters_only_leaf() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_SELFLEAF },
                 TraceEvent::EventDelivered {
                     handler_state: SL,
                     event: E_SELFLEAF,
@@ -130,11 +134,18 @@ async fn det_self_leaf_exits_and_reenters_only_leaf() {
                 TraceEvent::TransitionFired {
                     from: Some(SL),
                     to: SL,
+                    reason: TransitionReason::Event { event: E_SELFLEAF },
                 },
+                TraceEvent::ExitBegan { state: SL },
                 exit_(SL, A_L_OUT),
                 TraceEvent::Exited { state: SL },
-                TraceEvent::Entered { state: SL },
+                TraceEvent::EnterBegan { state: SL },
                 entry(SL, A_L_IN),
+                TraceEvent::Entered { state: SL },
+                TraceEvent::TransitionComplete {
+                    from: Some(SL),
+                    to: SL,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -209,6 +220,7 @@ async fn det_self_composite_default_descends() {
             // Mid's entry actions don't fire. No default-descent.
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_SELFMID },
                 TraceEvent::EventDelivered {
                     handler_state: SM,
                     event: E_SELFMID,
@@ -216,9 +228,15 @@ async fn det_self_composite_default_descends() {
                 TraceEvent::TransitionFired {
                     from: Some(SL),
                     to: SM,
+                    reason: TransitionReason::Event { event: E_SELFMID },
                 },
+                TraceEvent::ExitBegan { state: SL },
                 exit_(SL, A_L_OUT),
                 TraceEvent::Exited { state: SL },
+                TraceEvent::TransitionComplete {
+                    from: Some(SL),
+                    to: SM,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -257,7 +275,8 @@ async fn det_self_leaf_repeated_is_deterministic() {
                         e,
                         TraceEvent::TransitionFired {
                             from: Some(SL),
-                            to: SL
+                            to: SL,
+                            ..
                         }
                     )
                 })

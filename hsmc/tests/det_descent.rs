@@ -12,7 +12,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -117,9 +117,12 @@ async fn det_descent_target_with_three_default_levels() {
                 TraceEvent::Started {
                     chart_hash: Desc::<8>::CHART_HASH,
                 },
+                TraceEvent::EnterBegan { state: SR },
                 TraceEvent::Entered { state: SR },
-                TraceEvent::Entered { state: SI },
+                TraceEvent::EnterBegan { state: SI },
                 entry(SI, A_IDLE_IN),
+                TraceEvent::Entered { state: SI },
+                TraceEvent::EventReceived { event: E_GO },
                 TraceEvent::EventDelivered {
                     handler_state: SI,
                     event: E_GO,
@@ -127,17 +130,27 @@ async fn det_descent_target_with_three_default_levels() {
                 TraceEvent::TransitionFired {
                     from: Some(SI),
                     to: ST,
+                    reason: TransitionReason::Event { event: E_GO },
                 },
+                TraceEvent::ExitBegan { state: SI },
                 exit_(SI, A_IDLE_OUT),
                 TraceEvent::Exited { state: SI },
-                TraceEvent::Entered { state: ST },
+                TraceEvent::EnterBegan { state: ST },
                 entry(ST, A_TOWER_IN),
-                TraceEvent::Entered { state: SL1 },
+                TraceEvent::Entered { state: ST },
+                TraceEvent::EnterBegan { state: SL1 },
                 entry(SL1, A_L1_IN),
-                TraceEvent::Entered { state: SL2 },
+                TraceEvent::Entered { state: SL1 },
+                TraceEvent::EnterBegan { state: SL2 },
                 entry(SL2, A_L2_IN),
-                TraceEvent::Entered { state: SL3 },
+                TraceEvent::Entered { state: SL2 },
+                TraceEvent::EnterBegan { state: SL3 },
                 entry(SL3, A_L3_IN),
+                TraceEvent::Entered { state: SL3 },
+                TraceEvent::TransitionComplete {
+                    from: Some(SI),
+                    to: ST,
+                },
             ];
 
             assert_eq!(actual, expected);

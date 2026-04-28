@@ -11,7 +11,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -146,11 +146,14 @@ fn initial_descent() -> Vec<TraceEvent> {
         TraceEvent::Started {
             chart_hash: Lat::<8>::CHART_HASH,
         },
+        TraceEvent::EnterBegan { state: SR },
         TraceEvent::Entered { state: SR },
-        TraceEvent::Entered { state: SP },
+        TraceEvent::EnterBegan { state: SP },
         entry(SP, A_P_IN),
-        TraceEvent::Entered { state: SA },
+        TraceEvent::Entered { state: SP },
+        TraceEvent::EnterBegan { state: SA },
         entry(SA, A_A_IN),
+        TraceEvent::Entered { state: SA },
     ]
 }
 
@@ -185,6 +188,7 @@ async fn det_lateral_a_to_b_lca_is_parent() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOB },
                 TraceEvent::EventDelivered {
                     handler_state: SA,
                     event: E_GOB,
@@ -192,11 +196,18 @@ async fn det_lateral_a_to_b_lca_is_parent() {
                 TraceEvent::TransitionFired {
                     from: Some(SA),
                     to: SB,
+                    reason: TransitionReason::Event { event: E_GOB },
                 },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
-                TraceEvent::Entered { state: SB },
+                TraceEvent::EnterBegan { state: SB },
                 entry(SB, A_B_IN),
+                TraceEvent::Entered { state: SB },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SB,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -215,6 +226,7 @@ async fn det_lateral_a_to_c_exits_parent() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOC },
                 TraceEvent::EventDelivered {
                     handler_state: SA,
                     event: E_GOC,
@@ -222,13 +234,21 @@ async fn det_lateral_a_to_c_exits_parent() {
                 TraceEvent::TransitionFired {
                     from: Some(SA),
                     to: SC,
+                    reason: TransitionReason::Event { event: E_GOC },
                 },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
+                TraceEvent::ExitBegan { state: SP },
                 exit_(SP, A_P_OUT),
                 TraceEvent::Exited { state: SP },
-                TraceEvent::Entered { state: SC },
+                TraceEvent::EnterBegan { state: SC },
                 entry(SC, A_C_IN),
+                TraceEvent::Entered { state: SC },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SC,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -246,6 +266,7 @@ async fn det_lateral_target_with_children_default_descends() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOD },
                 TraceEvent::EventDelivered {
                     handler_state: SA,
                     event: E_GOD,
@@ -253,15 +274,24 @@ async fn det_lateral_target_with_children_default_descends() {
                 TraceEvent::TransitionFired {
                     from: Some(SA),
                     to: SD,
+                    reason: TransitionReason::Event { event: E_GOD },
                 },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
+                TraceEvent::ExitBegan { state: SP },
                 exit_(SP, A_P_OUT),
                 TraceEvent::Exited { state: SP },
-                TraceEvent::Entered { state: SD },
+                TraceEvent::EnterBegan { state: SD },
                 entry(SD, A_D_IN),
-                TraceEvent::Entered { state: SE },
+                TraceEvent::Entered { state: SD },
+                TraceEvent::EnterBegan { state: SE },
                 entry(SE, A_E_IN),
+                TraceEvent::Entered { state: SE },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SD,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -280,6 +310,7 @@ async fn det_lateral_to_deeply_nested_target() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOE },
                 TraceEvent::EventDelivered {
                     handler_state: SA,
                     event: E_GOE,
@@ -287,15 +318,24 @@ async fn det_lateral_to_deeply_nested_target() {
                 TraceEvent::TransitionFired {
                     from: Some(SA),
                     to: SE,
+                    reason: TransitionReason::Event { event: E_GOE },
                 },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
+                TraceEvent::ExitBegan { state: SP },
                 exit_(SP, A_P_OUT),
                 TraceEvent::Exited { state: SP },
-                TraceEvent::Entered { state: SD },
+                TraceEvent::EnterBegan { state: SD },
                 entry(SD, A_D_IN),
-                TraceEvent::Entered { state: SE },
+                TraceEvent::Entered { state: SD },
+                TraceEvent::EnterBegan { state: SE },
                 entry(SE, A_E_IN),
+                TraceEvent::Entered { state: SE },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SE,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -316,6 +356,7 @@ async fn det_lateral_chained_transitions() {
             let mut expected = initial_descent();
             // A → B
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOB },
                 TraceEvent::EventDelivered {
                     handler_state: SA,
                     event: E_GOB,
@@ -323,14 +364,22 @@ async fn det_lateral_chained_transitions() {
                 TraceEvent::TransitionFired {
                     from: Some(SA),
                     to: SB,
+                    reason: TransitionReason::Event { event: E_GOB },
                 },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
-                TraceEvent::Entered { state: SB },
+                TraceEvent::EnterBegan { state: SB },
                 entry(SB, A_B_IN),
+                TraceEvent::Entered { state: SB },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SB,
+                },
             ]);
             // B → C (LCA = Root, so Parent exits too).
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_GOC },
                 TraceEvent::EventDelivered {
                     handler_state: SB,
                     event: E_GOC,
@@ -338,13 +387,21 @@ async fn det_lateral_chained_transitions() {
                 TraceEvent::TransitionFired {
                     from: Some(SB),
                     to: SC,
+                    reason: TransitionReason::Event { event: E_GOC },
                 },
+                TraceEvent::ExitBegan { state: SB },
                 exit_(SB, A_B_OUT),
                 TraceEvent::Exited { state: SB },
+                TraceEvent::ExitBegan { state: SP },
                 exit_(SP, A_P_OUT),
                 TraceEvent::Exited { state: SP },
-                TraceEvent::Entered { state: SC },
+                TraceEvent::EnterBegan { state: SC },
                 entry(SC, A_C_IN),
+                TraceEvent::Entered { state: SC },
+                TraceEvent::TransitionComplete {
+                    from: Some(SB),
+                    to: SC,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -360,9 +417,13 @@ async fn det_lateral_lca_stays_active() {
             let _ = m.dispatch(Ev::GoB).await;
             let j = m.take_journal();
             // After initial Entered(Parent), Parent must not appear again.
+            let initial_p_idx = j
+                .iter()
+                .position(|e| matches!(e, TraceEvent::Entered { state: SP }))
+                .unwrap();
             let parent_events: Vec<&TraceEvent> = j
                 .iter()
-                .skip(3)
+                .skip(initial_p_idx + 1)
                 .filter(|e| {
                     matches!(
                         e,

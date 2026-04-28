@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 use hsmc::statechart;
 
 #[derive(Debug, Clone)]

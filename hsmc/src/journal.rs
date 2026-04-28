@@ -45,6 +45,22 @@ pub enum ActionKind {
     Handler,
 }
 
+/// Why a transition fired. Carried on `TransitionFired` so observers can
+/// see *what triggered* the state change, not just that one happened.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TransitionReason {
+    /// External or queued event with the given index dispatched into a
+    /// handler that fired this transition.
+    Event { event: u16 },
+    /// Timer on the given (state, timer) slot expired and its handler
+    /// fired this transition.
+    Timer { state: u16, timer: u16 },
+    /// Driven from inside the runtime without an originating event or
+    /// timer (e.g. default-descent into a child after entering a
+    /// composite state). Reserved; not currently emitted.
+    Internal,
+}
+
 /// One observable atom of chart execution. The macro emits these at every
 /// hook point so the full sequence can be journaled and compared.
 ///
@@ -54,14 +70,23 @@ pub enum ActionKind {
 pub enum TraceEvent {
     /// First event in any journal. Identifies the chart definition.
     Started { chart_hash: u64 },
-    /// A state's entry begins. Followed by `ActionInvoked{Entry}` for each
-    /// of that state's entry actions, then `DuringStarted` for each during
-    /// declared on the state, then potentially the next state's `Entered`
-    /// (default-descent).
+    /// A state's entry began. The marker is emitted before any of the
+    /// state's entry actions, timers, or durings have run. Followed by
+    /// `ActionInvoked{Entry}`, `TimerArmed`, `DuringStarted`, then the
+    /// matching `Entered` end marker.
+    EnterBegan { state: u16 },
+    /// A state's entry completed. Emitted after every entry action,
+    /// timer arm, and during start has run for that state. Pairs with
+    /// the prior `EnterBegan { state }`.
     Entered { state: u16 },
-    /// A state's exit completed. Preceded by `DuringCancelled` for each
-    /// during on the state, followed by `ActionInvoked{Exit}` for each
-    /// exit action.
+    /// A state's exit began. The marker is emitted before any of the
+    /// state's during cancellations, timer cancellations, or exit
+    /// actions have run. Followed by `DuringCancelled`, `TimerCancelled`,
+    /// `ActionInvoked{Exit}`, then the matching `Exited` end marker.
+    ExitBegan { state: u16 },
+    /// A state's exit completed. Emitted after every during cancel,
+    /// timer cancel, and exit action has run for that state. Pairs with
+    /// the prior `ExitBegan { state }`.
     Exited { state: u16 },
     /// An action function was called.
     ActionInvoked {
@@ -75,14 +100,30 @@ pub enum TraceEvent {
     /// A `during:` activity was cancelled because its owning state is
     /// being exited.
     DuringCancelled { state: u16, during: u16 },
-    /// A transition is about to fire. `from` is the innermost active state
-    /// at the moment the transition was triggered; `to` is the target.
-    /// Followed by the actual `Exited` / `Entered` / etc. events that
-    /// implement the transition.
-    TransitionFired { from: Option<u16>, to: u16 },
+    /// A transition is about to fire. `from` is the innermost active
+    /// state at the moment the transition was triggered; `to` is the
+    /// target; `reason` records what caused the transition (event,
+    /// timer, or internal). Followed by the actual `ExitBegan`/`Exited`/
+    /// `EnterBegan`/`Entered` events that implement the transition,
+    /// then the matching `TransitionComplete` end marker.
+    TransitionFired {
+        from: Option<u16>,
+        to: u16,
+        reason: TransitionReason,
+    },
+    /// A transition completed. Emitted after the transition's exit and
+    /// entry sequences are fully done. Pairs with the prior
+    /// `TransitionFired { from, to, .. }`.
+    TransitionComplete { from: Option<u16>, to: u16 },
+    /// An event was popped from the internal queue and is about to be
+    /// dispatched. Emitted before the handler search; followed by either
+    /// `EventDelivered` (handler found and ran) or `EventDropped`
+    /// (no handler on the active path), or `TerminateRequested` if the
+    /// event matches the chart's terminate declaration.
+    EventReceived { event: u16 },
     /// An event reached a state's handler. `handler_state` is the state
-    /// whose handler ran (which may be an ancestor of the innermost active
-    /// state if the event bubbled).
+    /// whose handler ran (which may be an ancestor of the innermost
+    /// active state if the event bubbled).
     EventDelivered { handler_state: u16, event: u16 },
     /// An event was dispatched but no state on the active path had a
     /// handler. Silently dropped per spec.

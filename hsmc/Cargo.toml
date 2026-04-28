@@ -17,25 +17,30 @@ exclude = ["examples/microwave_tui.rs"]
 default = []
 tokio = ["dep:tokio"]
 embassy = ["dep:embassy-sync", "dep:embassy-time", "dep:embassy-futures"]
-# Auto-tracing backends — pick at most one. When the user opts a chart
-# into `trace;`, the macro emits calls to an internal dispatcher that
-# routes to whichever backend is enabled here. With NO backend feature
-# enabled, `trace;` is a no-op (zero overhead). Enabling more than one
-# backend produces a duplicate-macro compile error — that's intentional.
+# Auto-tracing sinks — every chart emits `__chart_observe!` calls
+# unconditionally; whichever of these sinks you enable is what gets
+# textual log lines. Pick zero, one, or any combination — the
+# observation pipeline fans out to all enabled sinks and the in-memory
+# journal (below). With NO sink feature enabled, observation is fully
+# elided at compile time (zero overhead).
+#
+# Format: `[statechart:<Name>] <verb> key=value …` (logfmt-style,
+# greppable, regex-parseable). The `tracing` backend uses native
+# structured fields instead of stringly key=value pairs.
 trace-defmt   = ["dep:defmt"]
 trace-log     = ["dep:log"]
 trace-tracing = ["dep:tracing"]
-# Journaling backend. When enabled, the macro emits calls into an
-# in-memory journal recording every observable atom: entries, exits,
-# action invocations, during start/cancel, timer arm/cancel/fire, emits,
-# event delivery, transitions, and termination. Used to make charts
-# replay-deterministic and to catch semantic regressions in CI.
+# In-memory journal sink. When enabled, every `__chart_observe!` site
+# also records a `TraceEvent` into the per-machine `JournalSink`. The
+# journal is the authoritative byte-deterministic atom-by-atom record
+# of chart execution; trace backends are textual renderings of the
+# same vocabulary.
 # Requires `alloc` (the journal grows dynamically). Off by default —
 # zero overhead and no `alloc` requirement when not enabled.
 journal       = []
 
 [dependencies]
-hsmc-macros = { path = "../hsmc-macros", version = "0.3.0" }
+hsmc-macros = { path = "../hsmc-macros", version = "0.4.0" }
 heapless = "0.8"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"], optional = true }
 embassy-sync = { version = "0.8", optional = true }

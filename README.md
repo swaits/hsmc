@@ -40,14 +40,22 @@ statechart! {
 - **`m.run().await` is the whole task body.** Races active durings, the
   external event channel, and timer deadlines. The MCU sleeps between
   events (embassy's cooperative executor parks all futures).
+- **Unified observability.** One observation per atom of execution
+  fans out at compile time to a journal (`Vec<TraceEvent>`) and/or
+  textual trace backends (`defmt`, `log`, `tracing`) — they share a
+  single vocabulary, so they cannot diverge. With no sink feature on,
+  every site expands to `()` (zero overhead). See
+  [Observability](#observability--one-journal-multiple-outputs).
 - **Deterministic + mechanically verified.** The `journal` feature
   records every action, transition, timer, and event in order — same
   inputs, byte-identical journal. The runtime queue and timer table
   carry Pearlite specs that Creusot + Why3 + alt-ergo + z3 discharge
-  mechanically (`just verify`). 113 byte-equal expected-vs-actual
-  journal tests anchor every spec rule.
-- **Backward-compatible.** Every v0.1 / v0.2 statechart compiles under
-  v0.3 unchanged.
+  mechanically (`just verify`). 159 tests pin every spec rule
+  (journal sequences + trace-format regression + integration).
+- **Backward-compatible chart syntax.** Every v0.1 / v0.2 / v0.3
+  statechart compiles under v0.4 unchanged. The 0.4 breaks are in
+  observability surface area only — see
+  [Migration](#migration-from-v03).
 
 ## How a chart behaves — the building blocks
 
@@ -86,6 +94,7 @@ walk up to the parent and check there. Repeat. If you reach the root
 with no handler, the event is silently discarded.
 
 Three corollaries:
+
 - Leaf shadows ancestor for the same trigger.
 - Multiple handlers in one state on the same trigger fire in
   declaration order; the transition (if any) fires last.
@@ -143,7 +152,7 @@ in.
 
 A timer (`on(after D) => …` or `on(every D) => …`) is **armed** when
 its declaring state is entered, **cancelled** when that state is
-exited. Descending into a child is *not* an exit, so the parent's
+exited. Descending into a child is _not_ an exit, so the parent's
 timers keep running while you're in a child. Re-entering a state
 restarts its timers from zero.
 
@@ -174,16 +183,16 @@ overwhelming majority of charts.
 The bet is on **simple, consistent semantics**. These features are
 omitted on purpose; for each, what to do instead:
 
-| Missing feature | Use instead |
-|---|---|
+| Missing feature                 | Use instead                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | Guard conditions on transitions | Split source into two states, or have an action `emit()` a follow-up event for the chart to branch on |
-| Orthogonal / parallel regions | Two charts as two tasks connected by channels, or multiple `during:` activities in one state |
-| History states | Store last child explicitly in your context; transition to it on re-entry |
-| Deferred events | Handle where they arrive (drop/log if not relevant), or have producer check state |
-| Internal transitions | `action(Trig) => fn;` (no transition) — exactly that |
-| State-local context | All state in the root context; durings borrow disjoint fields |
-| Event priorities beyond FIFO | Higher-priority events on a separate channel into a separate, faster machine |
-| Runtime statechart modification | Design every variation up front as states |
+| Orthogonal / parallel regions   | Two charts as two tasks connected by channels, or multiple `during:` activities in one state          |
+| History states                  | Store last child explicitly in your context; transition to it on re-entry                             |
+| Deferred events                 | Handle where they arrive (drop/log if not relevant), or have producer check state                     |
+| Internal transitions            | `action(Trig) => fn;` (no transition) — exactly that                                                  |
+| State-local context             | All state in the root context; durings borrow disjoint fields                                         |
+| Event priorities beyond FIFO    | Higher-priority events on a separate channel into a separate, faster machine                          |
+| Runtime statechart modification | Design every variation up front as states                                                             |
 
 ## Quickstart
 
@@ -191,7 +200,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-hsmc = { version = "0.3", features = ["embassy"] }  # or ["tokio"]
+hsmc = { version = "0.4", features = ["embassy"] }  # or ["tokio"]
 ```
 
 Minimal timer-only machine:
@@ -327,44 +336,99 @@ into a single during that uses `select` internally.
 
 For `statechart! Foo { ... }` the macro emits:
 
-| Item                            | What it is                                                           |
-|---------------------------------|----------------------------------------------------------------------|
-| `FooState`                      | Enum of every user-declared state.                                   |
-| `FooActions`                    | Trait with one async fn per unique action name. User implements.     |
-| `FooActionContext<'a>`          | Wrapper passed to actions. `Deref`s to the root context. `emit()`.  |
-| `FooCtx<'a>`                    | Type alias for `FooActionContext<'a>`.                               |
-| `Foo<const QN: usize = 8>`      | The machine itself.                                                  |
-| `FooSender`                     | Cloneable handle for cross-task / ISR event injection.               |
-| `Foo::<8>::STATE_CHART`         | `&'static str` ASCII tree of the hierarchy (useful for `defmt`/docs).|
+| Item                       | What it is                                                            |
+| -------------------------- | --------------------------------------------------------------------- |
+| `FooState`                 | Enum of every user-declared state.                                    |
+| `FooActions`               | Trait with one async fn per unique action name. User implements.      |
+| `FooActionContext<'a>`     | Wrapper passed to actions. `Deref`s to the root context. `emit()`.    |
+| `FooCtx<'a>`               | Type alias for `FooActionContext<'a>`.                                |
+| `Foo<const QN: usize = 8>` | The machine itself.                                                   |
+| `FooSender`                | Cloneable handle for cross-task / ISR event injection.                |
+| `Foo::<8>::STATE_CHART`    | `&'static str` ASCII tree of the hierarchy (useful for `defmt`/docs). |
 
 ### Machine methods
 
-| Method                              | Notes                                                            |
-|-------------------------------------|------------------------------------------------------------------|
-| `new(ctx)` / `new(ctx, channel)`    | Construct. Under embassy, pass an `&'static Channel`.            |
-| `with_queue_capacity::<N>(ctx,...)` | Custom event-queue capacity.                                     |
-| `async fn run()`                    | Drive the machine to completion (async features).                |
-| `async fn dispatch(ev)`             | Push event + drain to quiescence. Same task injection.           |
-| `fn step(elapsed) -> Option<Duration>` | One unit of work (test/polling driver).                       |
-| `fn send(ev)`                       | Raw push, non-draining. For tests.                               |
-| `sender() -> Sender`                | Clone handle for other tasks / ISRs.                             |
-| `current_state()`                   | The active leaf state.                                           |
-| `is_terminated()`                   | True after `terminate` event.                                    |
-| `has_pending_events()`              | Queue non-empty.                                                 |
-| `context()` / `context_mut()`       | Borrow the root context.                                         |
-| `into_context(self)`                | Consume, return ctx.                                             |
-| `STATE_CHART`                       | Const ASCII diagram.                                             |
+| Method                                 | Notes                                                  |
+| -------------------------------------- | ------------------------------------------------------ |
+| `new(ctx)` / `new(ctx, channel)`       | Construct. Under embassy, pass an `&'static Channel`.  |
+| `with_queue_capacity::<N>(ctx,...)`    | Custom event-queue capacity.                           |
+| `async fn run()`                       | Drive the machine to completion (async features).      |
+| `async fn dispatch(ev)`                | Push event + drain to quiescence. Same task injection. |
+| `fn step(elapsed) -> Option<Duration>` | One unit of work (test/polling driver).                |
+| `fn send(ev)`                          | Raw push, non-draining. For tests.                     |
+| `sender() -> Sender`                   | Clone handle for other tasks / ISRs.                   |
+| `current_state()`                      | The active leaf state.                                 |
+| `is_terminated()`                      | True after `terminate` event.                          |
+| `has_pending_events()`                 | Queue non-empty.                                       |
+| `context()` / `context_mut()`          | Borrow the root context.                               |
+| `into_context(self)`                   | Consume, return ctx.                                   |
+| `STATE_CHART`                          | Const ASCII diagram.                                   |
 
 ## Feature flags
 
-| Feature   | Effect                                                                  |
-|-----------|-------------------------------------------------------------------------|
-| (default) | `no_std`, no async runtime. Drive via `step(Duration)` + `send(ev)`.    |
-| `tokio`   | Async actions + `run()`. Targets single-thread via `LocalSet`.          |
-| `embassy` | Async actions + `run()`. Targets embassy's cooperative executor. `no_std`.|
+| Feature   | Effect                                                                     |
+| --------- | -------------------------------------------------------------------------- |
+| (default) | `no_std`, no async runtime. Drive via `step(Duration)` + `send(ev)`.       |
+| `tokio`   | Async actions + `run()`. Targets single-thread via `LocalSet`.             |
+| `embassy` | Async actions + `run()`. Targets embassy's cooperative executor. `no_std`. |
 
 `embassy` and `tokio` are mutually exclusive — enabling both is a compile
 error.
+
+## Migration from v0.3
+
+The 0.4 breaks are in the observability surface area only; chart
+syntax and runtime API are unchanged.
+
+### 1. Trace prefix changed
+
+Trace lines (when `trace-defmt` / `trace-log` / `trace-tracing` is
+enabled) now use `[statechart:Name]` instead of `[Name]`. Update any
+log filters or grep patterns. The verb after the prefix is now a
+single hyphenated token followed by `key=value` pairs (logfmt).
+
+### 2. `TraceEvent::TransitionFired` carries `reason`
+
+Add `reason` to any pattern matches:
+
+```rust
+// before:
+TraceEvent::TransitionFired { from, to } => …
+// after:
+TraceEvent::TransitionFired { from, to, reason } => …
+// or, if you don't need it:
+TraceEvent::TransitionFired { from, to, .. } => …
+```
+
+The new field carries `TransitionReason::Event { event }`,
+`Timer { state, timer }`, or `Internal` so consumers can see what
+triggered the transition.
+
+### 3. New `TraceEvent` variants
+
+If you `match` exhaustively on `TraceEvent`, add arms for the new
+variants. Otherwise nothing changes:
+
+- `EnterBegan { state }` — phase begin marker pairs with `Entered`.
+- `ExitBegan { state }` — phase begin marker pairs with `Exited`.
+- `TransitionComplete { from, to }` — pairs with `TransitionFired`.
+- `EventReceived { event }` — fires when an event is popped from the
+  queue, before handler search.
+
+These are pure observation — no runtime semantic change.
+
+### 4. `trace;` keyword is a no-op
+
+Charts that declared `trace;` continue to compile. The keyword no
+longer gates emission — observation is now controlled purely by
+which `trace-*` cargo feature you enable. You can leave `trace;` in
+or remove it; both work.
+
+### 5. Trace backends are no longer mutually exclusive
+
+Previously, enabling more than one of `trace-defmt` / `trace-log` /
+`trace-tracing` was a compile error. Now they fan out independently:
+turn on whichever you want.
 
 ## Migration from v0.1
 
@@ -442,12 +506,12 @@ async fn radio_task(lora: LoRaDriver, ch: &'static RadioChan) {
 
 ## Examples
 
-| Example            | Purpose                                                             |
-|--------------------|---------------------------------------------------------------------|
-| `microwave`        | Full-feature pure-event machine: entry/exit, timers, emit, terminate.|
-| `microwave_tui`    | TUI variant of microwave.                                            |
-| `during_radio`     | `during:` activities simulating a radio task with RX + TX loops.     |
-| `embassy_full`     | Embassy feature demonstration.                                       |
+| Example         | Purpose                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| `microwave`     | Full-feature pure-event machine: entry/exit, timers, emit, terminate. |
+| `microwave_tui` | TUI variant of microwave.                                             |
+| `during_radio`  | `during:` activities simulating a radio task with RX + TX loops.      |
+| `embassy_full`  | Embassy feature demonstration.                                        |
 
 Run `cargo run --example during_radio --features tokio` to see the
 `during:` pattern end-to-end.
@@ -469,12 +533,81 @@ gets to a green proof in one command. See
 [`verification/INVARIANTS.md`](verification/INVARIANTS.md) for the
 spec-rule → proof mapping.
 
-The `journal` Cargo feature gives you a deterministic execution
-trace of every action, transition, timer arm/cancel/fire, queued
-emit, event delivery, and termination. Same chart + same events =
-byte-identical journal. 113 byte-equal expected-vs-actual journal
-tests anchor every spec rule. `cargo mutants` runs cleanly with
-0 missed mutants under `--features tokio,journal`.
+Beyond Creusot, the suite includes:
+
+- **159 integration tests** — full chart behavior, byte-equal expected-
+  vs-actual journals for ~113 deterministic-flow tests, plus 11 trace-
+  format regression tests pinning every observation verb's exact
+  textual rendering.
+- **0 missed mutants** under `cargo mutants --features
+  tokio,journal,trace-log`.
+- **Miri**: 68 tests, no UB.
+
+## Observability — one journal, multiple outputs
+
+Every chart emits a single observation per atom of execution. That
+observation fans out to whichever sinks you compile in:
+
+| Feature         | Sink                                                     |
+| --------------- | -------------------------------------------------------- |
+| `journal`       | In-memory `Vec<TraceEvent>` (replay, byte-deterministic) |
+| `trace-defmt`   | `defmt::*` log lines                                     |
+| `trace-log`     | `log::*` log lines                                       |
+| `trace-tracing` | `tracing::*` events with structured fields               |
+
+With **no** sink feature on, observation is fully elided at compile
+time — zero overhead. Multiple sinks can be enabled simultaneously;
+the journal IS the observation stream and trace backends are textual
+renderings of it, so they cannot diverge.
+
+The textual format is logfmt-style — greppable and regex-parseable:
+
+```
+[statechart:Microwave] started chart_hash=0xa1b2c3d4
+[statechart:Microwave] entering state=Idle
+[statechart:Microwave] action state=Idle action=clear_display kind=entry
+[statechart:Microwave] timer-armed state=Idle timer=t0 duration_ns=5000000000
+[statechart:Microwave] during-started state=Idle during=poll_sensor
+[statechart:Microwave] entered state=Idle
+[statechart:Microwave] event-received name=StartButton
+[statechart:Microwave] event-delivered name=StartButton handler=Idle
+[statechart:Microwave] transition-begin from=Idle to=Heating reason=event:StartButton
+[statechart:Microwave] exiting state=Idle
+[statechart:Microwave] timer-cancelled state=Idle timer=t0
+[statechart:Microwave] during-cancelled state=Idle during=poll_sensor
+[statechart:Microwave] action state=Idle action=stop_motor kind=exit
+[statechart:Microwave] exited state=Idle
+[statechart:Microwave] entering state=Heating
+[statechart:Microwave] entered state=Heating
+[statechart:Microwave] transition-complete from=Idle to=Heating
+```
+
+### The verb vocabulary
+
+Twenty verbs cover every `TraceEvent` variant. Begin/end markers
+bracket entry, exit, and transition phases so the actions, timers,
+and durings running inside each phase are visible.
+
+| Verb | Fires when |
+|---|---|
+| `started` | First step of a chart's life — carries `chart_hash` |
+| `entering` / `entered` | Begin / end of a state's entry phase |
+| `exiting` / `exited` | Begin / end of a state's exit phase |
+| `action` | An action fn was called — `kind=entry\|exit\|handler` |
+| `during-started` / `during-cancelled` | A `during:` activity started / was dropped |
+| `transition-begin` / `transition-complete` | Begin / end of a transition's exit-then-enter sequence |
+| `event-received` | An event was popped from the queue |
+| `event-delivered` | A handler ran for the event |
+| `event-dropped` | The event reached root with no handler |
+| `emit-queued` / `emit-failed` | `emit()` from inside an action — queued or rejected |
+| `timer-armed` / `timer-cancelled` / `timer-fired` | Timer lifecycle |
+| `terminate-requested` | `terminate(...)` event matched, exit chain about to run |
+| `terminated` | Chart finished (always last) |
+
+The `reason=` field on `transition-begin` records what triggered the
+transition: an event (`event:VariantName`), a timer
+(`timer:State/timer-id`), or `internal`. Real-life captures can be
+diffed against expected behavior the same way the journal can.
 
 ## Status
 
@@ -484,6 +617,12 @@ tests anchor every spec rule. `cargo mutants` runs cleanly with
 - v0.3: `journal` feature + deterministic trace + replay; root
   state targetable by chart name; Creusot verification of the
   runtime data structures; 113-test deterministic-flow suite.
+- v0.4: unified observation pipeline (journal + trace share one
+  vocabulary, fan out to multiple sinks at compile time); logfmt-
+  style trace format with `[statechart:Name]` prefix; transition
+  reasons; entry/exit/transition begin/end markers; multiple trace
+  backends now compose; chart-level `trace;` keyword deprecated.
+  Breaking on the `TraceEvent` enum shape; chart syntax unchanged.
 - Out of scope (deliberate): guard conditions, orthogonal/parallel
   regions, history states, deferred events, internal transitions,
   state-local context, event priorities beyond FIFO, runtime

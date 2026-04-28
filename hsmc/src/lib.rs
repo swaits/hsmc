@@ -102,140 +102,614 @@ pub use hsmc_macros::statechart;
 mod error;
 pub use error::HsmcError;
 
-// ── Journal (deterministic execution trace) ─────────────────────────
+// ── Unified observation pipeline ────────────────────────────────────
 //
-// When `feature = "journal"` is enabled, the macro emits one
-// [`TraceEvent`] per observable atom: entries, exits, action calls,
-// during start/cancel, timer arm/cancel/fire, queued emits, event
-// dispatch, transitions, termination. The events are appended to the
-// machine's internal `JournalSink` so callers can compare against an
-// expected sequence (see `tests/replay.rs`).
+// The `statechart!` macro emits ONE `__chart_observe!` call per
+// observable atom of execution — entry/exit phase begin/end markers,
+// action invocations, during start/cancel, timer arm/cancel/fire,
+// emit queue push/fail, event receive/deliver/drop, transition
+// begin/complete, terminate-requested, and terminated.
 //
-// When the feature is OFF, the codegen still emits `__chart_journal!`
-// invocations at every hook site, but the macro expands to nothing
-// (zero overhead) and `JournalSink` is a ZST so the field on the
-// machine takes 0 bytes.
+// `__chart_observe!` is the single dispatcher: each arm fans the
+// observation out to whichever sinks are enabled at compile time:
+//
+//   - `feature = "journal"`     → push a `TraceEvent` into the
+//                                  per-machine `JournalSink`.
+//   - `feature = "trace-defmt"` → emit a `defmt::*` log line.
+//   - `feature = "trace-log"`   → emit a `log::*` log line.
+//   - `feature = "trace-tracing"` → emit a `tracing::*` event with
+//                                    structured fields.
+//
+// With NO sink feature enabled, every arm body is empty and the
+// macro's args are never expanded — zero runtime cost, zero binary
+// growth. There is intentionally no catch-all arm: an unrecognized
+// invocation produces a compile error, so codegen mismatches are
+// caught loudly rather than silently dropped.
+//
+// Trace and journal share the same vocabulary by construction. The
+// trace's textual rendering is machine-parseable (logfmt-style:
+// `[statechart:Name] verb key=value …`), so a captured log can be
+// diff'd against expected behavior the same way the journal can.
 
 #[cfg(feature = "journal")]
 mod journal;
 
 #[cfg(feature = "journal")]
-pub use journal::{ActionKind, Journal, TraceEvent};
+pub use journal::{ActionKind, Journal, TraceEvent, TransitionReason};
 
-/// Journal call dispatcher invoked by `statechart!`-generated code.
-/// Not part of the public API.
+/// Internal observation dispatcher invoked by `statechart!`-generated
+/// code. Not part of the public API.
 ///
-/// Call form: `__chart_journal!(<sink-expr>, <TraceEvent expr>)`.
-/// The first argument is a place expression for the sink (typically
-/// `self.__journal`); the second is the full `TraceEvent` value to
-/// push.
+/// Call form (one arm per `TraceEvent` variant):
+/// `__chart_observe!(<Variant>, <sink-expr>, <chart-literal>, <variant args…>)`
 ///
-/// When the `journal` feature is off, the macro discards both arguments
-/// and expands to nothing — the codegen can refer to `TraceEvent::*`
-/// without the type having to exist.
-#[cfg(feature = "journal")]
+/// `sink-expr` is the place expression for the journal sink (typically
+/// `&mut self.__journal`); `chart-literal` is the chart name as a
+/// string literal. Variant args are passed positionally — see each arm
+/// for the order. Names (state, action, event, timer, during) are
+/// passed as `&'static str` literals at each call site so the trace
+/// formatters never do a runtime lookup.
+///
+/// All sink-feature gates apply *inside* each arm. With every sink
+/// feature off, the arm body is empty; the macro's positional args are
+/// never expanded; the call site contributes zero code.
 #[doc(hidden)]
 #[macro_export]
-macro_rules! __chart_journal {
-    ($sink:expr, $event:expr) => {
-        $sink.push($event);
-    };
-}
+macro_rules! __chart_observe {
+    // ── Started ────────────────────────────────────────────────────
+    (Started, $sink:expr, $chart:literal, $hash:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::Started { chart_hash: $hash });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] started chart_hash={=u64:#x}",
+            $chart,
+            $hash
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] started chart_hash={:#x}", $chart, $hash);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, chart_hash = $hash, "started");
+    }};
 
-/// No-op fallback for when `feature = "journal"` is disabled.
-#[cfg(not(feature = "journal"))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __chart_journal {
-    ($($_:tt)*) => {};
-}
+    // ── EnterBegan / Entered ───────────────────────────────────────
+    (EnterBegan, $sink:expr, $chart:literal, $sid:expr, $sname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EnterBegan { state: $sid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!("[statechart:{}] entering state={}", $chart, $sname);
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] entering state={}", $chart, $sname);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, state = $sname, "entering");
+    }};
+    (Entered, $sink:expr, $chart:literal, $sid:expr, $sname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::Entered { state: $sid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!("[statechart:{}] entered state={}", $chart, $sname);
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] entered state={}", $chart, $sname);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, state = $sname, "entered");
+    }};
 
-// ── Auto-tracing dispatcher ──────────────────────────────────────────
-//
-// When a chart opts in via `trace;`, the proc-macro emits calls to
-// `::hsmc::__chart_trace!(<kind> <chart-name>, <state-or-action>);` at
-// every state entry, exit, action invocation, and transition. This
-// crate-level macro picks the backend based on which `trace-*` cargo
-// feature is enabled — exactly one of `trace-defmt` / `trace-log` /
-// `trace-tracing`. With none enabled it expands to nothing.
-//
-// Multiple `trace-*` features enabled simultaneously produce a
-// duplicate-definition compile error from rustc. Intentional.
+    // ── ExitBegan / Exited ─────────────────────────────────────────
+    (ExitBegan, $sink:expr, $chart:literal, $sid:expr, $sname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::ExitBegan { state: $sid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!("[statechart:{}] exiting state={}", $chart, $sname);
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] exiting state={}", $chart, $sname);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, state = $sname, "exiting");
+    }};
+    (Exited, $sink:expr, $chart:literal, $sid:expr, $sname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::Exited { state: $sid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!("[statechart:{}] exited state={}", $chart, $sname);
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] exited state={}", $chart, $sname);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, state = $sname, "exited");
+    }};
 
-/// Internal trace dispatcher invoked by `statechart!`-generated code.
-/// Not part of the public API.
-#[cfg(feature = "trace-defmt")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __chart_trace {
-    (enter $chart:literal, $state:expr) => {
-        ::defmt::info!("[{}] enter {}", $chart, $state);
-    };
-    (exit $chart:literal, $state:expr) => {
-        ::defmt::info!("[{}] exit  {}", $chart, $state);
-    };
-    (action $chart:literal, $action:expr) => {
-        ::defmt::trace!("[{}] action {}", $chart, $action);
-    };
-    (transition $chart:literal, $from:expr, $to:expr) => {
-        ::defmt::info!("[{}] {} -> {}", $chart, $from, $to);
-    };
-    ($($_:tt)*) => {};
-}
+    // ── ActionInvoked (Entry / Exit / Handler) ─────────────────────
+    (ActionInvoked, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $aid:expr, $aname:expr,
+        Entry) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::ActionInvoked {
+                state: $sid,
+                action: $aid,
+                kind: $crate::ActionKind::Entry,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::trace!(
+            "[statechart:{}] action state={} action={} kind=entry",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::trace!(
+            "[statechart:{}] action state={} action={} kind=entry",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::trace!(
+            chart = $chart,
+            state = $sname,
+            action = $aname,
+            kind = "entry",
+            "action"
+        );
+    }};
+    (ActionInvoked, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $aid:expr, $aname:expr,
+        Exit) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::ActionInvoked {
+                state: $sid,
+                action: $aid,
+                kind: $crate::ActionKind::Exit,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::trace!(
+            "[statechart:{}] action state={} action={} kind=exit",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::trace!(
+            "[statechart:{}] action state={} action={} kind=exit",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::trace!(
+            chart = $chart,
+            state = $sname,
+            action = $aname,
+            kind = "exit",
+            "action"
+        );
+    }};
+    (ActionInvoked, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $aid:expr, $aname:expr,
+        Handler) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::ActionInvoked {
+                state: $sid,
+                action: $aid,
+                kind: $crate::ActionKind::Handler,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::trace!(
+            "[statechart:{}] action state={} action={} kind=handler",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::trace!(
+            "[statechart:{}] action state={} action={} kind=handler",
+            $chart,
+            $sname,
+            $aname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::trace!(
+            chart = $chart,
+            state = $sname,
+            action = $aname,
+            kind = "handler",
+            "action"
+        );
+    }};
 
-/// Internal trace dispatcher invoked by `statechart!`-generated code.
-/// Not part of the public API.
-#[cfg(feature = "trace-log")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __chart_trace {
-    (enter $chart:literal, $state:expr) => {
-        ::log::info!("[{}] enter {}", $chart, $state);
-    };
-    (exit $chart:literal, $state:expr) => {
-        ::log::info!("[{}] exit  {}", $chart, $state);
-    };
-    (action $chart:literal, $action:expr) => {
-        ::log::trace!("[{}] action {}", $chart, $action);
-    };
-    (transition $chart:literal, $from:expr, $to:expr) => {
-        ::log::info!("[{}] {} -> {}", $chart, $from, $to);
-    };
-    ($($_:tt)*) => {};
-}
+    // ── DuringStarted / DuringCancelled ────────────────────────────
+    (DuringStarted, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $did:expr, $dname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::DuringStarted {
+                state: $sid,
+                during: $did,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!(
+            "[statechart:{}] during-started state={} during={}",
+            $chart,
+            $sname,
+            $dname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::debug!(
+            "[statechart:{}] during-started state={} during={}",
+            $chart,
+            $sname,
+            $dname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(
+            chart = $chart,
+            state = $sname,
+            during = $dname,
+            "during-started"
+        );
+    }};
+    (DuringCancelled, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $did:expr, $dname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::DuringCancelled {
+                state: $sid,
+                during: $did,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!(
+            "[statechart:{}] during-cancelled state={} during={}",
+            $chart,
+            $sname,
+            $dname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::debug!(
+            "[statechart:{}] during-cancelled state={} during={}",
+            $chart,
+            $sname,
+            $dname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(
+            chart = $chart,
+            state = $sname,
+            during = $dname,
+            "during-cancelled"
+        );
+    }};
 
-/// Internal trace dispatcher invoked by `statechart!`-generated code.
-/// Not part of the public API.
-#[cfg(feature = "trace-tracing")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __chart_trace {
-    (enter $chart:literal, $state:expr) => {
-        ::tracing::info!(chart = $chart, state = $state, "enter");
-    };
-    (exit $chart:literal, $state:expr) => {
-        ::tracing::info!(chart = $chart, state = $state, "exit");
-    };
-    (action $chart:literal, $action:expr) => {
-        ::tracing::trace!(chart = $chart, action = $action, "action");
-    };
-    (transition $chart:literal, $from:expr, $to:expr) => {
-        ::tracing::info!(chart = $chart, from = $from, to = $to, "transition");
-    };
-    ($($_:tt)*) => {};
-}
+    // ── TransitionFired (begin marker) ─────────────────────────────
+    //
+    // The reason is rendered three ways (event:Name, timer:State/Timer,
+    // internal). The journal stores the structured reason and the trace
+    // gets a pre-rendered `&'static str` (`$rname`) so log lines stay
+    // simple to parse.
+    (TransitionFired, $sink:expr, $chart:literal,
+        $from:expr, $fname:expr,
+        $to:expr, $tname:expr,
+        $reason:expr, $rname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TransitionFired {
+                from: $from,
+                to: $to,
+                reason: $reason,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] transition-begin from={} to={} reason={}",
+            $chart,
+            $fname,
+            $tname,
+            $rname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!(
+            "[statechart:{}] transition-begin from={} to={} reason={}",
+            $chart,
+            $fname,
+            $tname,
+            $rname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(
+            chart = $chart,
+            from = $fname,
+            to = $tname,
+            reason = $rname,
+            "transition-begin"
+        );
+    }};
 
-/// No-op fallback when no `trace-*` backend feature is enabled. The
-/// chart's `trace;` keyword still parses; calls just expand to nothing.
-#[cfg(not(any(
-    feature = "trace-defmt",
-    feature = "trace-log",
-    feature = "trace-tracing",
-)))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __chart_trace {
-    ($($_:tt)*) => {};
+    // ── TransitionComplete (end marker) ────────────────────────────
+    (TransitionComplete, $sink:expr, $chart:literal,
+        $from:expr, $fname:expr,
+        $to:expr, $tname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TransitionComplete {
+                from: $from,
+                to: $to,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] transition-complete from={} to={}",
+            $chart,
+            $fname,
+            $tname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!(
+            "[statechart:{}] transition-complete from={} to={}",
+            $chart,
+            $fname,
+            $tname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(
+            chart = $chart,
+            from = $fname,
+            to = $tname,
+            "transition-complete"
+        );
+    }};
+
+    // ── Event lifecycle ────────────────────────────────────────────
+    (EventReceived, $sink:expr, $chart:literal, $eid:expr, $ename:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EventReceived { event: $eid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!("[statechart:{}] event-received name={}", $chart, $ename);
+        #[cfg(feature = "trace-log")]
+        ::log::debug!("[statechart:{}] event-received name={}", $chart, $ename);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(chart = $chart, name = $ename, "event-received");
+    }};
+    (EventDelivered, $sink:expr, $chart:literal,
+        $eid:expr, $ename:expr,
+        $sid:expr, $sname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EventDelivered {
+                handler_state: $sid,
+                event: $eid,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] event-delivered name={} handler={}",
+            $chart,
+            $ename,
+            $sname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!(
+            "[statechart:{}] event-delivered name={} handler={}",
+            $chart,
+            $ename,
+            $sname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(
+            chart = $chart,
+            name = $ename,
+            handler = $sname,
+            "event-delivered"
+        );
+    }};
+    (EventDropped, $sink:expr, $chart:literal, $eid:expr, $ename:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EventDropped { event: $eid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!("[statechart:{}] event-dropped name={}", $chart, $ename);
+        #[cfg(feature = "trace-log")]
+        ::log::debug!("[statechart:{}] event-dropped name={}", $chart, $ename);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(chart = $chart, name = $ename, "event-dropped");
+    }};
+
+    // ── emit() outcomes ────────────────────────────────────────────
+    (EmitQueued, $sink:expr, $chart:literal, $eid:expr, $ename:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EmitQueued { event: $eid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!("[statechart:{}] emit-queued event={}", $chart, $ename);
+        #[cfg(feature = "trace-log")]
+        ::log::debug!("[statechart:{}] emit-queued event={}", $chart, $ename);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(chart = $chart, event = $ename, "emit-queued");
+    }};
+    (EmitFailed, $sink:expr, $chart:literal, $eid:expr, $ename:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::EmitFailed { event: $eid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::warn!(
+            "[statechart:{}] emit-failed event={} reason=queue-full",
+            $chart,
+            $ename
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::warn!(
+            "[statechart:{}] emit-failed event={} reason=queue-full",
+            $chart,
+            $ename
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::warn!(
+            chart = $chart,
+            event = $ename,
+            reason = "queue-full",
+            "emit-failed"
+        );
+    }};
+
+    // ── Timer lifecycle ────────────────────────────────────────────
+    (TimerArmed, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $tid:expr, $tname:expr,
+        $ns:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TimerArmed {
+                state: $sid,
+                timer: $tid,
+                ns: $ns,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!(
+            "[statechart:{}] timer-armed state={} timer={} duration_ns={=u64}",
+            $chart,
+            $sname,
+            $tname,
+            $ns
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::debug!(
+            "[statechart:{}] timer-armed state={} timer={} duration_ns={}",
+            $chart,
+            $sname,
+            $tname,
+            $ns
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(
+            chart = $chart,
+            state = $sname,
+            timer = $tname,
+            duration_ns = $ns,
+            "timer-armed"
+        );
+    }};
+    (TimerCancelled, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $tid:expr, $tname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TimerCancelled {
+                state: $sid,
+                timer: $tid,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::debug!(
+            "[statechart:{}] timer-cancelled state={} timer={}",
+            $chart,
+            $sname,
+            $tname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::debug!(
+            "[statechart:{}] timer-cancelled state={} timer={}",
+            $chart,
+            $sname,
+            $tname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::debug!(
+            chart = $chart,
+            state = $sname,
+            timer = $tname,
+            "timer-cancelled"
+        );
+    }};
+    (TimerFired, $sink:expr, $chart:literal,
+        $sid:expr, $sname:expr,
+        $tid:expr, $tname:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TimerFired {
+                state: $sid,
+                timer: $tid,
+            });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] timer-fired state={} timer={}",
+            $chart,
+            $sname,
+            $tname
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!(
+            "[statechart:{}] timer-fired state={} timer={}",
+            $chart,
+            $sname,
+            $tname
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(
+            chart = $chart,
+            state = $sname,
+            timer = $tname,
+            "timer-fired"
+        );
+    }};
+
+    // ── Termination ────────────────────────────────────────────────
+    (TerminateRequested, $sink:expr, $chart:literal, $eid:expr, $ename:expr) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::TerminateRequested { event: $eid });
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!(
+            "[statechart:{}] terminate-requested event={}",
+            $chart,
+            $ename
+        );
+        #[cfg(feature = "trace-log")]
+        ::log::info!(
+            "[statechart:{}] terminate-requested event={}",
+            $chart,
+            $ename
+        );
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, event = $ename, "terminate-requested");
+    }};
+    (Terminated, $sink:expr, $chart:literal) => {{
+        #[cfg(feature = "journal")]
+        {
+            $sink.push($crate::TraceEvent::Terminated);
+        }
+        #[cfg(feature = "trace-defmt")]
+        ::defmt::info!("[statechart:{}] terminated", $chart);
+        #[cfg(feature = "trace-log")]
+        ::log::info!("[statechart:{}] terminated", $chart);
+        #[cfg(feature = "trace-tracing")]
+        ::tracing::info!(chart = $chart, "terminated");
+    }};
 }
 
 #[doc(hidden)]

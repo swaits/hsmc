@@ -88,22 +88,6 @@ fn compute_chart_hash(ir: &Ir) -> u64 {
     h
 }
 
-/// Emit a single trace call routed through the hsmc-internal dispatcher
-/// (`::hsmc::__chart_trace!`), or nothing if the chart didn't declare
-/// `trace;`. The dispatcher picks the actual backend (defmt / log /
-/// tracing / no-op) based on which `hsmc/trace-*` cargo feature the
-/// user enabled in their `Cargo.toml` — no extra wiring required.
-///
-/// Zero-overhead when `trace_enabled` is false: generates an empty
-/// TokenStream so the compiler sees no extra work at the call site.
-fn emit_trace_call(trace_enabled: bool, args: TokenStream) -> TokenStream {
-    if trace_enabled {
-        quote! { ::hsmc::__chart_trace!(#args); }
-    } else {
-        TokenStream::new()
-    }
-}
-
 /// For each user-declared leaf state that has one or more `during:` activities
 /// active (either declared on it, on any ancestor, or on root), return its
 /// state id and the flattened list of durings in leaf-first order. Durings
@@ -533,15 +517,29 @@ pub fn generate(ir: &Ir) -> TokenStream {
         })
         .collect();
 
-    // Per-id name lookups, only emitted when the chart opted into tracing.
-    // Chart-name string is reused at every trace site as a literal.
+    // ── Per-id name lookup tables ─────────────────────────────────────
+    //
+    // Generated unconditionally at chart scope so any code in the
+    // emitted module (machine impl, action context, etc.) can resolve
+    // a u16 id to a `&'static str`. The tables are dead-code-eliminated
+    // when no observation feature is on: with neither `journal` nor any
+    // `trace-*` feature enabled, the `__chart_observe!` macro arms are
+    // empty, so the call sites never reference these helpers and the
+    // linker drops them. Marked `dead_code` to silence rustc when off.
     let chart_name_lit = ir.name.to_string();
+
     let state_name_arms: Vec<_> = ir
         .states
         .iter()
         .map(|s| {
             let sid = s.id;
-            let nm = s.name.to_string();
+            let nm = if s.parent.is_none() {
+                // Synthesized root: render as the chart name (per spec
+                // the root state IS the chart).
+                ir.name.to_string()
+            } else {
+                s.name.to_string()
+            };
             quote! { #sid => #nm, }
         })
         .collect();
@@ -555,174 +553,357 @@ pub fn generate(ir: &Ir) -> TokenStream {
             quote! { #aid => #nm, }
         })
         .collect();
-    let trace_helpers = if ir.trace_enabled {
-        quote! {
-            #[inline(always)]
-            #[doc(hidden)]
-            fn __state_name(sid: u16) -> &'static str {
-                match sid {
-                    #(#state_name_arms)*
-                    _ => "<unknown>",
-                }
-            }
-            #[inline(always)]
-            #[doc(hidden)]
-            fn __action_name(aid: u16) -> &'static str {
-                match aid {
-                    #(#action_name_arms)*
-                    _ => "<unknown>",
-                }
+    let event_name_arms: Vec<_> = ir
+        .event_variants
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let eid = i as u16;
+            let nm = v.name.to_string();
+            quote! { #eid => #nm, }
+        })
+        .collect();
+    let timer_name_arms: Vec<_> = ir
+        .duration_triggers
+        .iter()
+        .enumerate()
+        .map(|(i, d)| {
+            let tid = i as u16;
+            // The intern key looks like "<state>::<expr>:<repeat>". For
+            // human readability render the expr text — fall back to
+            // numeric id if the key parses oddly.
+            let label = format!("t{}", tid);
+            // Try to extract the expression body so the trace shows
+            // something like `Duration::from_secs(5)`. Using `key` as
+            // a stable label is OK for now; the expr token stream isn't
+            // round-tripped through `to_string()` cleanly across rustc
+            // versions, so prefer a synthesized short name.
+            let _ = &d.key; // mark used for non-warn
+            quote! { #tid => #label, }
+        })
+        .collect();
+    // Per-(state, during-index) name lookup. The during's fn-name is
+    // the closest thing to a stable identifier the user wrote.
+    let during_name_arms: Vec<_> = {
+        let mut arms = Vec::new();
+        for s in &ir.states {
+            let sid = s.id;
+            for (di, d) in s.durings.iter().enumerate() {
+                let did = di as u16;
+                let nm = d.fn_name.to_string();
+                arms.push(quote! { (#sid, #did) => #nm, });
             }
         }
-    } else {
-        TokenStream::new()
+        arms
     };
+    // Pre-rendered transition reason strings for trace output.
+    // `event:<VariantName>` for event-driven transitions.
+    let event_reason_str_arms: Vec<_> = ir
+        .event_variants
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            let eid = i as u16;
+            let s = format!("event:{}", v.name);
+            quote! { #eid => #s, }
+        })
+        .collect();
+    // `timer:<state>/<timer>` for timer-driven transitions. We
+    // enumerate (state, timer) pairs that actually occur.
+    let timer_reason_str_arms: Vec<_> = {
+        let mut arms = Vec::new();
+        for s in &ir.states {
+            for &tid in &s.owned_timers {
+                let sid = s.id;
+                let sname = if s.parent.is_none() {
+                    ir.name.to_string()
+                } else {
+                    s.name.to_string()
+                };
+                let tlabel = format!("t{}", tid);
+                let s_str = format!("timer:{}/{}", sname, tlabel);
+                arms.push(quote! { (#sid, #tid) => #s_str, });
+            }
+        }
+        arms
+    };
+
+    let name_helpers = quote! {
+        #[allow(dead_code)]
+        #[doc(hidden)]
+        #[inline]
+        fn __state_name(sid: u16) -> &'static str {
+            match sid {
+                #(#state_name_arms)*
+                _ => "<unknown>",
+            }
+        }
+        #[allow(dead_code)]
+        #[doc(hidden)]
+        #[inline]
+        fn __action_name(aid: u16) -> &'static str {
+            match aid {
+                #(#action_name_arms)*
+                _ => "<unknown>",
+            }
+        }
+        #[allow(dead_code, unreachable_patterns)]
+        #[doc(hidden)]
+        #[inline]
+        fn __event_name(eid: u16) -> &'static str {
+            match eid {
+                #(#event_name_arms)*
+                _ => "<unknown>",
+            }
+        }
+        #[allow(dead_code, unreachable_patterns)]
+        #[doc(hidden)]
+        #[inline]
+        fn __timer_name(tid: u16) -> &'static str {
+            match tid {
+                #(#timer_name_arms)*
+                _ => "<unknown>",
+            }
+        }
+        #[allow(dead_code, unreachable_patterns, unused_variables)]
+        #[doc(hidden)]
+        #[inline]
+        fn __during_name(sid: u16, did: u16) -> &'static str {
+            match (sid, did) {
+                #(#during_name_arms)*
+                _ => "<unknown>",
+            }
+        }
+        #[allow(dead_code, unreachable_patterns)]
+        #[doc(hidden)]
+        #[inline]
+        fn __event_reason_str(eid: u16) -> &'static str {
+            match eid {
+                #(#event_reason_str_arms)*
+                _ => "event:?",
+            }
+        }
+        #[allow(dead_code, unreachable_patterns, unused_variables)]
+        #[doc(hidden)]
+        #[inline]
+        fn __timer_reason_str(sid: u16, tid: u16) -> &'static str {
+            match (sid, tid) {
+                #(#timer_reason_str_arms)*
+                _ => "timer:?",
+            }
+        }
+        #[allow(dead_code)]
+        #[doc(hidden)]
+        #[inline]
+        fn __from_name(opt: Option<u16>) -> &'static str {
+            match opt {
+                Some(id) => __state_name(id),
+                None => "<none>",
+            }
+        }
+    };
+
     // ── Observation hook snippets ─────────────────────────────────────
     //
-    // Trace and journal want the same call sites: enter, exit, action,
-    // transition. We emit a single `observe_*` snippet per site that
-    // contains BOTH the trace call (gated on `ir.trace_enabled` at
-    // parse time, may also be no-op'd by the trace-* feature gate) and
-    // the journal call (gated on the `journal` cargo feature inside the
-    // macro). Either gate independently produces zero overhead when off.
+    // Each snippet emits ONE `__chart_observe!` invocation. The macro
+    // dispatches per-variant to whichever sinks (journal + trace-*) are
+    // enabled at compile time. Trace and journal share the same call
+    // sites by construction — they cannot diverge.
     //
-    // Journal-only sites (timers, durings, emits, event dispatch,
-    // termination) get plain `journal_*` snippets — trace doesn't have
-    // a string format for them.
-
-    // Trace-side primitives, recreated here so each observe_* snippet
-    // can splice them in.
-    let trace_enter_call = emit_trace_call(
-        ir.trace_enabled,
-        quote! { enter #chart_name_lit, Self::__state_name(sid) },
-    );
-    let trace_exit_call = emit_trace_call(
-        ir.trace_enabled,
-        quote! { exit #chart_name_lit, Self::__state_name(sid) },
-    );
-    let trace_action_call = emit_trace_call(
-        ir.trace_enabled,
-        quote! { action #chart_name_lit, Self::__action_name(aid) },
-    );
-    let trace_transition_call = emit_trace_call(
-        ir.trace_enabled,
-        quote! {
-            transition #chart_name_lit,
-            self.current.map(Self::__state_name).unwrap_or("<none>"),
-            Self::__state_name(target)
-        },
-    );
+    // Names (state/action/event/timer/during) are passed as runtime
+    // lookups against the small static tables generated above. With no
+    // sink feature on, the macro arm body is empty and the lookup is
+    // never expanded — zero overhead at the call site.
 
     let observe_started = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::Started { chart_hash: Self::CHART_HASH }
+        ::hsmc::__chart_observe!(
+            Started,
+            &mut self.__journal,
+            #chart_name_lit,
+            Self::CHART_HASH
+        );
+    };
+    let observe_enter_began = quote! {
+        ::hsmc::__chart_observe!(
+            EnterBegan,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid,
+            __state_name(sid)
         );
     };
     let observe_entered = quote! {
-        #trace_enter_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::Entered { state: sid }
+        ::hsmc::__chart_observe!(
+            Entered,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid,
+            __state_name(sid)
+        );
+    };
+    let observe_exit_began = quote! {
+        ::hsmc::__chart_observe!(
+            ExitBegan,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid,
+            __state_name(sid)
         );
     };
     let observe_exited = quote! {
-        #trace_exit_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::Exited { state: sid }
+        ::hsmc::__chart_observe!(
+            Exited,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid,
+            __state_name(sid)
         );
     };
     let observe_action_entry = quote! {
-        #trace_action_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::ActionInvoked {
-                state: sid,
-                action: aid,
-                kind: ::hsmc::ActionKind::Entry,
-            }
+        ::hsmc::__chart_observe!(
+            ActionInvoked,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid, __state_name(sid),
+            aid, __action_name(aid),
+            Entry
         );
     };
     let observe_action_exit = quote! {
-        #trace_action_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::ActionInvoked {
-                state: sid,
-                action: aid,
-                kind: ::hsmc::ActionKind::Exit,
-            }
+        ::hsmc::__chart_observe!(
+            ActionInvoked,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid, __state_name(sid),
+            aid, __action_name(aid),
+            Exit
         );
     };
     let observe_action_handler = quote! {
-        #trace_action_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::ActionInvoked {
-                state: __handler_state,
-                action: aid,
-                kind: ::hsmc::ActionKind::Handler,
-            }
+        ::hsmc::__chart_observe!(
+            ActionInvoked,
+            &mut self.__journal,
+            #chart_name_lit,
+            __handler_state, __state_name(__handler_state),
+            aid, __action_name(aid),
+            Handler
         );
     };
-    let observe_transition = quote! {
-        #trace_transition_call
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::TransitionFired {
-                from: self.current,
-                to: target,
-            }
+    // TransitionFired — three call-site flavours. Codegen splices in
+    // the appropriate one based on what triggered the transition.
+    let observe_transition_fired_event = quote! {
+        ::hsmc::__chart_observe!(
+            TransitionFired,
+            &mut self.__journal,
+            #chart_name_lit,
+            self.current, __from_name(self.current),
+            target, __state_name(target),
+            ::hsmc::TransitionReason::Event { event: __ev_id },
+            __event_reason_str(__ev_id)
+        );
+    };
+    let observe_transition_fired_timer = quote! {
+        ::hsmc::__chart_observe!(
+            TransitionFired,
+            &mut self.__journal,
+            #chart_name_lit,
+            self.current, __from_name(self.current),
+            target, __state_name(target),
+            ::hsmc::TransitionReason::Timer {
+                state: __t_state,
+                timer: __t_trigger,
+            },
+            __timer_reason_str(__t_state, __t_trigger)
+        );
+    };
+    #[allow(dead_code)]
+    let _observe_transition_fired_internal = quote! {
+        ::hsmc::__chart_observe!(
+            TransitionFired,
+            &mut self.__journal,
+            #chart_name_lit,
+            self.current, __from_name(self.current),
+            target, __state_name(target),
+            ::hsmc::TransitionReason::Internal,
+            "internal"
+        );
+    };
+    let observe_transition_complete = quote! {
+        ::hsmc::__chart_observe!(
+            TransitionComplete,
+            &mut self.__journal,
+            #chart_name_lit,
+            __t_complete_from, __from_name(__t_complete_from),
+            target, __state_name(target)
+        );
+    };
+    let observe_event_received = quote! {
+        ::hsmc::__chart_observe!(
+            EventReceived,
+            &mut self.__journal,
+            #chart_name_lit,
+            __ev_id,
+            __event_name(__ev_id)
         );
     };
     let observe_event_delivered = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::EventDelivered {
-                handler_state: __handler_state,
-                event: __ev_id,
-            }
+        ::hsmc::__chart_observe!(
+            EventDelivered,
+            &mut self.__journal,
+            #chart_name_lit,
+            __ev_id, __event_name(__ev_id),
+            __handler_state, __state_name(__handler_state)
         );
     };
     let observe_event_dropped = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::EventDropped { event: __ev_id }
+        ::hsmc::__chart_observe!(
+            EventDropped,
+            &mut self.__journal,
+            #chart_name_lit,
+            __ev_id, __event_name(__ev_id)
         );
     };
     let observe_timer_armed = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::TimerArmed {
-                state: sid,
-                timer: tid,
-                ns: __duration_for(tid).as_nanos() as u64,
-            }
+        ::hsmc::__chart_observe!(
+            TimerArmed,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid, __state_name(sid),
+            tid, __timer_name(tid),
+            __duration_for(tid).as_nanos() as u64
         );
     };
     let observe_timer_cancelled = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::TimerCancelled { state: sid, timer: tid }
+        ::hsmc::__chart_observe!(
+            TimerCancelled,
+            &mut self.__journal,
+            #chart_name_lit,
+            sid, __state_name(sid),
+            tid, __timer_name(tid)
         );
     };
     let observe_timer_fired = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::TimerFired { state: __t_state, timer: __t_trigger }
+        ::hsmc::__chart_observe!(
+            TimerFired,
+            &mut self.__journal,
+            #chart_name_lit,
+            __t_state, __state_name(__t_state),
+            __t_trigger, __timer_name(__t_trigger)
         );
     };
     let observe_terminated = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::Terminated
+        ::hsmc::__chart_observe!(
+            Terminated,
+            &mut self.__journal,
+            #chart_name_lit
         );
     };
     let observe_terminate_requested = quote! {
-        ::hsmc::__chart_journal!(
-            self.__journal,
-            ::hsmc::TraceEvent::TerminateRequested { event: __ev_id }
+        ::hsmc::__chart_observe!(
+            TerminateRequested,
+            &mut self.__journal,
+            #chart_name_lit,
+            __ev_id, __event_name(__ev_id)
         );
     };
 
@@ -741,9 +922,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
         let __dn = Self::__durings_count(sid);
         let mut __di: u16 = 0;
         while __di < __dn {
-            ::hsmc::__chart_journal!(
-                self.__journal,
-                ::hsmc::TraceEvent::DuringStarted { state: sid, during: __di }
+            ::hsmc::__chart_observe!(
+                DuringStarted,
+                &mut self.__journal,
+                #chart_name_lit,
+                sid, __state_name(sid),
+                __di, __during_name(sid, __di)
             );
             __di += 1;
         }
@@ -752,9 +936,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
         let __dn = Self::__durings_count(sid);
         let mut __di: u16 = 0;
         while __di < __dn {
-            ::hsmc::__chart_journal!(
-                self.__journal,
-                ::hsmc::TraceEvent::DuringCancelled { state: sid, during: __di }
+            ::hsmc::__chart_observe!(
+                DuringCancelled,
+                &mut self.__journal,
+                #chart_name_lit,
+                sid, __state_name(sid),
+                __di, __during_name(sid, __di)
             );
             __di += 1;
         }
@@ -1766,14 +1953,18 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 let __ev_id = __event_to_id(&event);
                 let __result = self.__queue.push(event);
                 if __result.is_ok() {
-                    ::hsmc::__chart_journal!(
-                        self.__journal,
-                        ::hsmc::TraceEvent::EmitQueued { event: __ev_id }
+                    ::hsmc::__chart_observe!(
+                        EmitQueued,
+                        &mut *self.__journal,
+                        #chart_name_lit,
+                        __ev_id, __event_name(__ev_id)
                     );
                 } else {
-                    ::hsmc::__chart_journal!(
-                        self.__journal,
-                        ::hsmc::TraceEvent::EmitFailed { event: __ev_id }
+                    ::hsmc::__chart_observe!(
+                        EmitFailed,
+                        &mut *self.__journal,
+                        #chart_name_lit,
+                        __ev_id, __event_name(__ev_id)
                     );
                 }
                 __result
@@ -1806,6 +1997,8 @@ pub fn generate(ir: &Ir) -> TokenStream {
         const __PARENT: [Option<u16>; #n_states] = [#(#parent_table),*];
         const __DEPTH: [u8; #n_states] = [#(#depth_table),*];
         const __DEFAULT_CHILD: [Option<u16>; #n_states] = [#(#default_child_table),*];
+
+        #name_helpers
 
         #[allow(dead_code, unreachable_patterns)]
         fn __state_id_to_public(id: u16) -> #state_enum_name {
@@ -2016,13 +2209,13 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
 
                 if let Some(ev) = self.queue.pop_front() {
+                    let __ev_id = __event_to_id(&ev);
+                    #observe_event_received
                     if matches!(__check_terminate(&ev), TerminateCheck::Yes) {
-                        let __ev_id = __event_to_id(&ev);
                         #observe_terminate_requested
                         self.do_terminate();
                         return None;
                     }
-                    let __ev_id = __event_to_id(&ev);
                     if __ev_id != u16::MAX {
                         let mut __cur = self.current;
                         let mut __delivered = false;
@@ -2030,7 +2223,10 @@ pub fn generate(ir: &Ir) -> TokenStream {
                             if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
                                 let __handler_state = s;
                                 #observe_event_delivered
-                                self.run_handlers(s, actions, target, Some(&ev));
+                                self.run_handlers(
+                                    s, actions, target, Some(&ev),
+                                    1u8, __ev_id, 0u16,
+                                );
                                 __delivered = true;
                                 break;
                             }
@@ -2077,13 +2273,13 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
 
                 if let Some(ev) = self.queue.pop_front() {
+                    let __ev_id = __event_to_id(&ev);
+                    #observe_event_received
                     if matches!(__check_terminate(&ev), TerminateCheck::Yes) {
-                        let __ev_id = __event_to_id(&ev);
                         #observe_terminate_requested
                         self.do_terminate().await;
                         return None;
                     }
-                    let __ev_id = __event_to_id(&ev);
                     if __ev_id != u16::MAX {
                         let mut __cur = self.current;
                         let mut __delivered = false;
@@ -2091,7 +2287,10 @@ pub fn generate(ir: &Ir) -> TokenStream {
                             if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
                                 let __handler_state = s;
                                 #observe_event_delivered
-                                self.run_handlers(s, actions, target, Some(&ev)).await;
+                                self.run_handlers(
+                                    s, actions, target, Some(&ev),
+                                    1u8, __ev_id, 0u16,
+                                ).await;
                                 __delivered = true;
                                 break;
                             }
@@ -2145,14 +2344,21 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 Ok(())
             }
 
+            // Reason kind passed by callers to `run_handlers`:
+            //   1 → event-driven (reason_a = event id)
+            //   2 → timer-driven (reason_a = state id, reason_b = timer id)
+            //   0 → internal/other (unused today; reserved)
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
-            #[allow(unused_variables)]
+            #[allow(unused_variables, clippy::too_many_arguments)]
             fn run_handlers(
                 &mut self,
                 source_state: u16,
                 actions: &'static [u16],
                 target: Option<u16>,
                 event: Option<&#ev_ty>,
+                __reason_kind: u8,
+                __reason_a: u16,
+                __reason_b: u16,
             ) {
                 let __handler_state = source_state;
                 for &aid in actions {
@@ -2160,19 +2366,36 @@ pub fn generate(ir: &Ir) -> TokenStream {
                     self.run_action(aid, event);
                     if self.terminated { return; }
                 }
-                if let Some(tgt) = target {
-                    self.transition(source_state, tgt);
+                if let Some(target) = target {
+                    match __reason_kind {
+                        1 => {
+                            let __ev_id = __reason_a;
+                            #observe_transition_fired_event
+                        }
+                        2 => {
+                            let __t_state = __reason_a;
+                            let __t_trigger = __reason_b;
+                            #observe_transition_fired_timer
+                        }
+                        _ => {}
+                    }
+                    let __t_complete_from = self.current;
+                    self.transition(source_state, target);
+                    #observe_transition_complete
                 }
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
-            #[allow(unused_variables)]
+            #[allow(unused_variables, clippy::too_many_arguments)]
             async fn run_handlers(
                 &mut self,
                 source_state: u16,
                 actions: &'static [u16],
                 target: Option<u16>,
                 event: Option<&#ev_ty>,
+                __reason_kind: u8,
+                __reason_a: u16,
+                __reason_b: u16,
             ) {
                 let __handler_state = source_state;
                 for &aid in actions {
@@ -2180,8 +2403,22 @@ pub fn generate(ir: &Ir) -> TokenStream {
                     self.run_action(aid, event).await;
                     if self.terminated { return; }
                 }
-                if let Some(tgt) = target {
-                    self.transition(source_state, tgt).await;
+                if let Some(target) = target {
+                    match __reason_kind {
+                        1 => {
+                            let __ev_id = __reason_a;
+                            #observe_transition_fired_event
+                        }
+                        2 => {
+                            let __t_state = __reason_a;
+                            let __t_trigger = __reason_b;
+                            #observe_transition_fired_timer
+                        }
+                        _ => {}
+                    }
+                    let __t_complete_from = self.current;
+                    self.transition(source_state, target).await;
+                    #observe_transition_complete
                 }
             }
 
@@ -2272,7 +2509,6 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                #observe_transition
                 if Self::is_up_transition(self.current, target) {
                     if let Some(mut cur) = self.current {
                         while cur != target {
@@ -2319,7 +2555,6 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                #observe_transition
                 if Self::is_up_transition(self.current, target) {
                     if let Some(mut cur) = self.current {
                         while cur != target {
@@ -2394,7 +2629,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             #[allow(unused_variables)]
             fn enter_state_no_descent(&mut self, sid: u16) {
-                #observe_entered
+                #observe_enter_began
                 let entries = Self::entries_of(sid);
                 for &aid in entries {
                     #observe_action_entry
@@ -2408,12 +2643,13 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
                 self.current = Some(sid);
                 #observe_durings_started
+                #observe_entered
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             #[allow(unused_variables)]
             async fn enter_state_no_descent(&mut self, sid: u16) {
-                #observe_entered
+                #observe_enter_began
                 let entries = Self::entries_of(sid);
                 for &aid in entries {
                     #observe_action_entry
@@ -2427,6 +2663,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
                 self.current = Some(sid);
                 #observe_durings_started
+                #observe_entered
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
@@ -2451,7 +2688,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[allow(unused_variables)]
             fn exit_state(&mut self, sid: u16) {
                 // Per spec §"Entry and exit ordering":
-                //   1. cancel durings  2. cancel timers  3. exit actions  4. Exited
+                //   1. ExitBegan  2. cancel durings  3. cancel timers
+                //   4. exit actions  5. Exited
+                #observe_exit_began
                 #observe_durings_cancelled
                 for &tid in __owned_timers(sid) {
                     #observe_timer_cancelled
@@ -2469,6 +2708,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             #[allow(unused_variables)]
             async fn exit_state(&mut self, sid: u16) {
+                #observe_exit_began
                 #observe_durings_cancelled
                 for &tid in __owned_timers(sid) {
                     #observe_timer_cancelled
@@ -2503,8 +2743,6 @@ pub fn generate(ir: &Ir) -> TokenStream {
                     _ => 0,
                 }
             }
-
-            #trace_helpers
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn do_terminate(&mut self) {
@@ -2543,15 +2781,15 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn dispatch_trigger(&mut self, state: u16, kind: u8, trig: u16) {
                 if let Some((actions, target)) = __handler_lookup(state, kind, trig) {
-                    // Timer-driven dispatch: no event payload in scope.
-                    self.run_handlers(state, actions, target, None);
+                    // Timer-driven dispatch: no event payload, reason = timer.
+                    self.run_handlers(state, actions, target, None, 2u8, state, trig);
                 }
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn dispatch_trigger(&mut self, state: u16, kind: u8, trig: u16) {
                 if let Some((actions, target)) = __handler_lookup(state, kind, trig) {
-                    self.run_handlers(state, actions, target, None).await;
+                    self.run_handlers(state, actions, target, None, 2u8, state, trig).await;
                 }
             }
         }

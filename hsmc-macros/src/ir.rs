@@ -26,10 +26,12 @@ pub struct Ir {
     /// Duration triggers referenced anywhere, in first-seen order.
     /// Each one gets a trigger id used by the timer table.
     pub duration_triggers: Vec<DurationTrigger>,
-    /// True when the chart declared `trace;` at root. Codegen routes
-    /// trace calls to `::hsmc::__chart_trace!`, which dispatches to a
-    /// backend (defmt / log / tracing / no-op) based on the user's
-    /// `hsmc/trace-*` feature selection in their `Cargo.toml`.
+    /// Set when the chart declared `trace;` at root. Retained for
+    /// backwards-compatible parsing — the keyword no longer gates
+    /// observation emission. As of 0.4 every chart unconditionally
+    /// emits `__chart_observe!` calls, and the actual trace fan-out is
+    /// chosen by the user's `hsmc/trace-*` cargo feature selection.
+    #[allow(dead_code)]
     pub trace_enabled: bool,
 }
 

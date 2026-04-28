@@ -85,7 +85,8 @@ async fn det_self_composite_default_descends_after_re_entry() {
                         e,
                         TraceEvent::TransitionFired {
                             from: Some(SP),
-                            to: SP
+                            to: SP,
+                            ..
                         }
                     )
                 })
@@ -133,7 +134,8 @@ async fn det_self_composite_action_kinds_in_order() {
                         e,
                         TraceEvent::TransitionFired {
                             from: Some(SP),
-                            to: SP
+                            to: SP,
+                            ..
                         }
                     )
                 })

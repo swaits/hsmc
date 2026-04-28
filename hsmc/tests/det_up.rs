@@ -15,7 +15,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -117,16 +117,21 @@ fn initial_descent() -> Vec<TraceEvent> {
         TraceEvent::Started {
             chart_hash: Up::<8>::CHART_HASH,
         },
-        TraceEvent::Entered { state: SR },
+        TraceEvent::EnterBegan { state: SR },
         entry(SR, A_R_IN),
-        TraceEvent::Entered { state: SA },
+        TraceEvent::Entered { state: SR },
+        TraceEvent::EnterBegan { state: SA },
         entry(SA, A_A_IN),
-        TraceEvent::Entered { state: SB },
+        TraceEvent::Entered { state: SA },
+        TraceEvent::EnterBegan { state: SB },
         entry(SB, A_B_IN),
-        TraceEvent::Entered { state: SC },
+        TraceEvent::Entered { state: SB },
+        TraceEvent::EnterBegan { state: SC },
         entry(SC, A_C_IN),
-        TraceEvent::Entered { state: SD },
+        TraceEvent::Entered { state: SC },
+        TraceEvent::EnterBegan { state: SD },
         entry(SD, A_D_IN),
+        TraceEvent::Entered { state: SD },
     ]
 }
 fn assert_journal(actual: &[TraceEvent], expected: &[TraceEvent]) {
@@ -159,6 +164,7 @@ async fn det_up_to_immediate_grandparent() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_UPTOC },
                 TraceEvent::EventDelivered {
                     handler_state: SD,
                     event: E_UPTOC,
@@ -166,9 +172,15 @@ async fn det_up_to_immediate_grandparent() {
                 TraceEvent::TransitionFired {
                     from: Some(SD),
                     to: SC,
+                    reason: TransitionReason::Event { event: E_UPTOC },
                 },
+                TraceEvent::ExitBegan { state: SD },
                 exit_(SD, A_D_OUT),
                 TraceEvent::Exited { state: SD },
+                TraceEvent::TransitionComplete {
+                    from: Some(SD),
+                    to: SC,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -186,6 +198,7 @@ async fn det_up_two_levels() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_UPTOB },
                 TraceEvent::EventDelivered {
                     handler_state: SD,
                     event: E_UPTOB,
@@ -193,11 +206,18 @@ async fn det_up_two_levels() {
                 TraceEvent::TransitionFired {
                     from: Some(SD),
                     to: SB,
+                    reason: TransitionReason::Event { event: E_UPTOB },
                 },
+                TraceEvent::ExitBegan { state: SD },
                 exit_(SD, A_D_OUT),
                 TraceEvent::Exited { state: SD },
+                TraceEvent::ExitBegan { state: SC },
                 exit_(SC, A_C_OUT),
                 TraceEvent::Exited { state: SC },
+                TraceEvent::TransitionComplete {
+                    from: Some(SD),
+                    to: SB,
+                },
             ]);
             assert_journal(&actual, &expected);
         })
@@ -215,6 +235,7 @@ async fn det_up_three_levels_to_a() {
 
             let mut expected = initial_descent();
             expected.extend(vec![
+                TraceEvent::EventReceived { event: E_UPTOA },
                 TraceEvent::EventDelivered {
                     handler_state: SD,
                     event: E_UPTOA,
@@ -222,13 +243,21 @@ async fn det_up_three_levels_to_a() {
                 TraceEvent::TransitionFired {
                     from: Some(SD),
                     to: SA,
+                    reason: TransitionReason::Event { event: E_UPTOA },
                 },
+                TraceEvent::ExitBegan { state: SD },
                 exit_(SD, A_D_OUT),
                 TraceEvent::Exited { state: SD },
+                TraceEvent::ExitBegan { state: SC },
                 exit_(SC, A_C_OUT),
                 TraceEvent::Exited { state: SC },
+                TraceEvent::ExitBegan { state: SB },
                 exit_(SB, A_B_OUT),
                 TraceEvent::Exited { state: SB },
+                TraceEvent::TransitionComplete {
+                    from: Some(SD),
+                    to: SA,
+                },
             ]);
             assert_journal(&actual, &expected);
         })

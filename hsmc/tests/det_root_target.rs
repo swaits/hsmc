@@ -17,7 +17,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -101,12 +101,16 @@ async fn det_root_targetable_by_chart_name() {
                 TraceEvent::Started {
                     chart_hash: Sub::<8>::CHART_HASH,
                 },
-                TraceEvent::Entered { state: SR },
+                TraceEvent::EnterBegan { state: SR },
                 entry(SR, A_R_IN),
-                TraceEvent::Entered { state: SA },
+                TraceEvent::Entered { state: SR },
+                TraceEvent::EnterBegan { state: SA },
                 entry(SA, A_A_IN),
-                TraceEvent::Entered { state: SB },
+                TraceEvent::Entered { state: SA },
+                TraceEvent::EnterBegan { state: SB },
                 entry(SB, A_B_IN),
+                TraceEvent::Entered { state: SB },
+                TraceEvent::EventReceived { event: E_UPTOROOT },
                 TraceEvent::EventDelivered {
                     handler_state: SB,
                     event: E_UPTOROOT,
@@ -114,11 +118,18 @@ async fn det_root_targetable_by_chart_name() {
                 TraceEvent::TransitionFired {
                     from: Some(SB),
                     to: SR,
+                    reason: TransitionReason::Event { event: E_UPTOROOT },
                 },
+                TraceEvent::ExitBegan { state: SB },
                 exit_(SB, A_B_OUT),
                 TraceEvent::Exited { state: SB },
+                TraceEvent::ExitBegan { state: SA },
                 exit_(SA, A_A_OUT),
                 TraceEvent::Exited { state: SA },
+                TraceEvent::TransitionComplete {
+                    from: Some(SB),
+                    to: SR,
+                },
             ];
 
             assert_eq!(

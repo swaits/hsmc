@@ -12,7 +12,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -97,19 +97,22 @@ async fn replay_full_lifecycle_matches_expected() {
                 TraceEvent::Started {
                     chart_hash: Replay::<8>::CHART_HASH,
                 },
-                TraceEvent::Entered { state: ST_ROOT },
+                TraceEvent::EnterBegan { state: ST_ROOT },
                 TraceEvent::ActionInvoked {
                     state: ST_ROOT,
                     action: A_ROOT_IN,
                     kind: ActionKind::Entry,
                 },
-                TraceEvent::Entered { state: ST_IDLE },
+                TraceEvent::Entered { state: ST_ROOT },
+                TraceEvent::EnterBegan { state: ST_IDLE },
                 TraceEvent::ActionInvoked {
                     state: ST_IDLE,
                     action: A_IDLE_IN,
                     kind: ActionKind::Entry,
                 },
+                TraceEvent::Entered { state: ST_IDLE },
                 // ── Go event delivered to Idle, transition to Active → Sub ──
+                TraceEvent::EventReceived { event: E_GO },
                 TraceEvent::EventDelivered {
                     handler_state: ST_IDLE,
                     event: E_GO,
@@ -117,39 +120,51 @@ async fn replay_full_lifecycle_matches_expected() {
                 TraceEvent::TransitionFired {
                     from: Some(ST_IDLE),
                     to: ST_ACTIVE,
+                    reason: TransitionReason::Event { event: E_GO },
                 },
+                TraceEvent::ExitBegan { state: ST_IDLE },
                 TraceEvent::ActionInvoked {
                     state: ST_IDLE,
                     action: A_IDLE_OUT,
                     kind: ActionKind::Exit,
                 },
                 TraceEvent::Exited { state: ST_IDLE },
-                TraceEvent::Entered { state: ST_ACTIVE },
+                TraceEvent::EnterBegan { state: ST_ACTIVE },
                 TraceEvent::ActionInvoked {
                     state: ST_ACTIVE,
                     action: A_ACTIVE_IN,
                     kind: ActionKind::Entry,
                 },
-                TraceEvent::Entered { state: ST_SUB },
+                TraceEvent::Entered { state: ST_ACTIVE },
+                TraceEvent::EnterBegan { state: ST_SUB },
                 TraceEvent::ActionInvoked {
                     state: ST_SUB,
                     action: A_SUB_IN,
                     kind: ActionKind::Entry,
                 },
+                TraceEvent::Entered { state: ST_SUB },
+                TraceEvent::TransitionComplete {
+                    from: Some(ST_IDLE),
+                    to: ST_ACTIVE,
+                },
                 // ── Halt event triggers termination: exit Sub → Active → root, then Terminated ──
+                TraceEvent::EventReceived { event: E_HALT },
                 TraceEvent::TerminateRequested { event: E_HALT },
+                TraceEvent::ExitBegan { state: ST_SUB },
                 TraceEvent::ActionInvoked {
                     state: ST_SUB,
                     action: A_SUB_OUT,
                     kind: ActionKind::Exit,
                 },
                 TraceEvent::Exited { state: ST_SUB },
+                TraceEvent::ExitBegan { state: ST_ACTIVE },
                 TraceEvent::ActionInvoked {
                     state: ST_ACTIVE,
                     action: A_ACTIVE_OUT,
                     kind: ActionKind::Exit,
                 },
                 TraceEvent::Exited { state: ST_ACTIVE },
+                TraceEvent::ExitBegan { state: ST_ROOT },
                 TraceEvent::ActionInvoked {
                     state: ST_ROOT,
                     action: A_ROOT_OUT,

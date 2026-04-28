@@ -4,6 +4,98 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.4.0 — 2026-04-28
+
+### Changed — observability (breaking)
+
+- **Unified observation pipeline.** The codegen now emits a single
+  `__chart_observe!` invocation per observable atom, dispatched at
+  compile time to whichever sinks are enabled: the in-memory journal
+  (`feature = "journal"`), `defmt` (`trace-defmt`), `log`
+  (`trace-log`), and/or `tracing` (`trace-tracing`). All sinks share
+  the same vocabulary by construction — the journal IS the observation
+  stream; trace backends are textual renderings of it. With NO sink
+  feature on, every call site expands to `()` (zero overhead). Multiple
+  trace sinks may now be enabled simultaneously (previously they were
+  mutually exclusive).
+- **Trace prefix changed.** `[ChartName] verb …` →
+  `[statechart:ChartName] verb …`. The new form is greppable and
+  unambiguous in mixed log streams.
+- **Trace format is now logfmt-style.** Every line is
+  `[statechart:Name] <verb> key=value key=value …` (or native structured
+  fields under `tracing`). Twenty verbs cover every TraceEvent variant
+  — entries, exits (with begin/end pairs), actions (with kind),
+  durings, transitions (with **reason** showing what triggered them),
+  events (received/delivered/dropped/queued/failed), timers, terminate.
+- **`trace;` keyword deprecated.** Still parsed for backwards
+  compatibility, but no longer gates emission. Trace output is now
+  controlled purely by which `trace-*` cargo feature you enable.
+
+### Changed — journal (breaking)
+
+- **`TraceEvent::TransitionFired` carries `reason: TransitionReason`.**
+  Replay consumers now see whether a transition was driven by an event
+  (`Event { event: u16 }`), a timer (`Timer { state, timer }`), or
+  internal logic (`Internal`).
+- **New TraceEvent variants for phase begin/end pairing.**
+  - `EnterBegan { state }` fires before a state's entry actions /
+    timers / durings; `Entered` keeps its place as the end marker.
+  - `ExitBegan { state }` fires before a state's during cancellations
+    / timer cancellations / exit actions; `Exited` keeps its place as
+    the end marker.
+  - `TransitionComplete { from, to }` fires after a transition's full
+    exit-then-enter sequence finishes; pairs with `TransitionFired`.
+  - `EventReceived { event }` fires when an event is popped from the
+    queue, before handler search; pairs with `EventDelivered` /
+    `EventDropped` / `TerminateRequested`.
+
+### Added
+
+- **`hsmc/tests/trace_format.rs`** — 11 tests pinning every verb's
+  exact textual rendering, including a journal/trace atom-count
+  equivalence test.
+- **`TransitionReason`** enum — re-exported from the crate root when
+  `feature = "journal"` is on. Carried on `TraceEvent::TransitionFired`.
+- **Multiple trace backends compose.** Previously enabling more than
+  one of `trace-defmt` / `trace-log` / `trace-tracing` was a compile
+  error. Now they fan out independently.
+
+### Migration
+
+Chart syntax is unchanged: every v0.1 / v0.2 / v0.3 statechart compiles
+under v0.4 without modification. Breakage is confined to the
+observability surface area:
+
+1. **Trace line prefix.** Update grep patterns and log filters from
+   `[ChartName]` to `[statechart:ChartName]`. The verb after the
+   prefix is now a single hyphenated token followed by `key=value`
+   pairs.
+
+2. **`TraceEvent::TransitionFired`** has a new `reason` field. Update
+   pattern matches:
+
+   ```rust
+   // before:
+   TraceEvent::TransitionFired { from, to } => …
+   // after:
+   TraceEvent::TransitionFired { from, to, reason } => …
+   // or, if you don't care:
+   TraceEvent::TransitionFired { from, to, .. } => …
+   ```
+
+3. **New `TraceEvent` variants.** If you `match` exhaustively, add
+   arms for `EnterBegan`, `ExitBegan`, `TransitionComplete`,
+   `EventReceived`. Otherwise nothing changes.
+
+4. **`trace;` keyword is now a no-op.** Charts that declared it still
+   compile. Trace output is now controlled purely by which `trace-*`
+   cargo feature you enable.
+
+5. **`__chart_trace!` and `__chart_journal!` macros are removed.**
+   These were doc-hidden and not part of the public API; mentioned
+   here for codebases that grepped through the macro emission for
+   patches/forks.
+
 ## 0.3.0 — 2026-04-27
 
 ### Added
