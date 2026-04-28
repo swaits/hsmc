@@ -2598,20 +2598,33 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 self.descend_defaults(target).await;
             }
 
-            fn lca(a: u16, b: u16) -> Option<u16> {
-                let mut set: ::hsmc::__private::heapless::Vec<u16, 32> =
-                    ::hsmc::__private::heapless::Vec::new();
-                let mut cur = Some(a);
-                while let Some(x) = cur {
-                    let _ = set.push(x);
-                    cur = __PARENT[x as usize];
+            // Lowest common ancestor via depth-walk. The chart's
+            // `__DEPTH` table is precomputed at codegen time, so we can
+            // align both walkers to the same depth and then ascend in
+            // lockstep until they meet. O(H) time, O(1) space — no
+            // ancestry-set allocation, no hierarchy ceiling.
+            fn lca(mut a: u16, mut b: u16) -> Option<u16> {
+                let mut da = __DEPTH[a as usize];
+                let mut db = __DEPTH[b as usize];
+                while da > db {
+                    match __PARENT[a as usize] {
+                        Some(p) => { a = p; da -= 1; }
+                        None => return None,
+                    }
                 }
-                let mut cur = Some(b);
-                while let Some(x) = cur {
-                    if set.contains(&x) { return Some(x); }
-                    cur = __PARENT[x as usize];
+                while db > da {
+                    match __PARENT[b as usize] {
+                        Some(p) => { b = p; db -= 1; }
+                        None => return None,
+                    }
                 }
-                None
+                while a != b {
+                    match (__PARENT[a as usize], __PARENT[b as usize]) {
+                        (Some(pa), Some(pb)) => { a = pa; b = pb; }
+                        _ => return None,
+                    }
+                }
+                Some(a)
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]

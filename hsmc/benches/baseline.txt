@@ -1,0 +1,84 @@
+# hsmc dispatch baseline — instruction counts from iai-callgrind.
+#
+# Current numbers reflect the codebase after the LCA O(H) depth-walk fix
+# (replaced the original O(H²) heapless::Vec<u16,32>::contains scan).
+# Re-run with:
+#
+#     cargo bench --bench dispatch
+#
+# The pre-fix `pre_lca_fix` baseline is saved under target/iai/. To diff
+# a future change against the current numbers, save a fresh named baseline
+# before the change:
+#
+#     cargo bench --bench dispatch -- --save-baseline=before_<your_change>
+#
+# Then after, diff with:
+#
+#     cargo bench --bench dispatch -- --baseline=before_<your_change>
+#
+# Numbers below are from a 6.19.14-zen kernel x86_64 box, valgrind 3.25.1,
+# iai-callgrind 0.16.1, --release.
+
+dispatch::dispatch::h2_cold_start cold:setup_h2_cold()
+  Instructions:                          51
+  L1 Hits:                               79
+  LL Hits:                                0
+  RAM Hits:                               7
+  Estimated Cycles:                     324
+
+dispatch::dispatch::h2_warm_lateral warm:setup_h2_warm()
+  Instructions:                         210
+  L1 Hits:                              268
+  LL Hits:                                0
+  RAM Hits:                              21
+  Estimated Cycles:                    1003
+
+dispatch::dispatch::h4_cross_tree cross:setup_h4_warm()
+  Instructions:                         394
+  L1 Hits:                              497
+  LL Hits:                                0
+  RAM Hits:                              26
+  Estimated Cycles:                    1407
+
+dispatch::dispatch::h4_up up:setup_h4_warm()
+  Instructions:                         203
+  L1 Hits:                              270
+  LL Hits:                                0
+  RAM Hits:                              16
+  Estimated Cycles:                     830
+
+dispatch::dispatch::h4_self self_:setup_h4_warm()
+  Instructions:                         233
+  L1 Hits:                              297
+  LL Hits:                                0
+  RAM Hits:                              24
+  Estimated Cycles:                    1137
+
+dispatch::dispatch::h8_cross_tree cross:setup_h8_warm()
+  Instructions:                         508
+  L1 Hits:                              636
+  LL Hits:                                0
+  RAM Hits:                              27
+  Estimated Cycles:                    1581
+
+dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
+  Instructions:                        1036
+  L1 Hits:                             1348
+  LL Hits:                                1
+  RAM Hits:                              33
+  Estimated Cycles:                    2508
+
+# ─── LCA O(H) fix delta (pre_lca_fix → current) ─────────────────────
+#
+# Bench               Instr Δ      Cycle Δ
+# h2_cold_start       -1.9%        -0.3%       (priming step, doesn't use LCA — noise)
+# h2_warm_lateral    -22.8%       -22.1%
+# h4_cross_tree      -25.9%       -10.6%
+# h4_up               +1.0%        +0.4%       (up-transition doesn't use LCA — noise)
+# h4_self            -21.5%       -11.7%
+# h8_cross_tree      -46.2%       -41.0%       ← headline: deepest LCA stress
+# chain_self_emit    -15.4%       -10.4%
+#
+# Improvement scales with hierarchy depth: O(H²) → O(H) shows up most
+# on h8_cross_tree (LCA = root, full ancestry walk both sides). Up- and
+# cold-start paths show ±1% noise — they don't go through lca().

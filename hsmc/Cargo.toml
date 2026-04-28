@@ -57,6 +57,9 @@ ratatui = "0.28"
 crossterm = { version = "0.28", features = ["event-stream"] }
 futures = "0.3"
 
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+iai-callgrind = "0.16"
+
 [[example]]
 name = "microwave"
 required-features = ["tokio"]
@@ -69,3 +72,7 @@ required-features = ["tokio"]
 name = "embassy_full"
 required-features = ["embassy"]
 crate-type = ["lib"]
+
+[[bench]]
+name = "dispatch"
+harness = false
