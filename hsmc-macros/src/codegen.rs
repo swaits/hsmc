@@ -4,7 +4,7 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::Ident;
 
-use crate::ir::{HandlerKindIr, Ir, TriggerIr, VariantKind};
+use crate::ir::{HandlerKindIr, Ir, StateIr, TriggerIr, VariantKind};
 use crate::parse::{During, PayloadKind};
 
 /// FNV-1a 64-bit hash of a chart's structural fingerprint. Stable across
@@ -86,6 +86,292 @@ fn compute_chart_hash(ir: &Ir) -> u64 {
         feed(e.name.to_string().as_bytes());
     }
     h
+}
+
+/// (exit_data, enter_data, exit_range, enter_range) — flat blobs of u16
+/// state ids and `(start, end)` index pairs into them, one per (from, to).
+/// Returned by `compute_transition_paths()` and folded by the caller into
+/// the consolidated `__PATH_DATA` / `__PATH_RANGE` tables.
+type TransitionPathTables = (Vec<u16>, Vec<u16>, Vec<(u16, u16)>, Vec<(u16, u16)>);
+
+/// Static precompute of every (from, to) state pair's exit and enter sequence,
+/// folded into flat tables emitted alongside `__PARENT` / `__DEPTH`. Replaces
+/// the runtime LCA depth-walk + ancestry walks + heapless::Vec construction
+/// in `transition()` with two slice lookups and two straight slice iterations.
+///
+/// The (from, to) lookup matches the runtime LCA call: `from` is the active
+/// leaf (`self.current`), `to` is the transition target. The same three
+/// transition shapes are encoded uniformly by what the precomputed paths
+/// contain:
+///
+///   - **Up-transition** (`to` is a strict ancestor of `from`): exit_path is
+///     `from..to` (target excluded; `to` is already on the active path and
+///     must not be re-entered). enter_path is empty — `transition()` sets
+///     `self.current = Some(target)` after the loops.
+///   - **Self-transition** (`from == to`): exit_path is `[to]`. enter_path
+///     is `[to, default_child(to), default_child(default_child(to)), ...]`
+///     — re-enter target plus descend defaults.
+///   - **Lateral** (LCA is a proper ancestor of both): exit_path walks
+///     `from` up to but not including LCA. enter_path walks
+///     LCA-side child of `to` down to `to`, then continues descending
+///     `__DEFAULT_CHILD` from `to`.
+///
+/// Storage: `__EXIT_DATA` and `__ENTER_DATA` are flat `[u16]` blobs;
+/// `__EXIT_RANGE[i*N + j]` / `__ENTER_RANGE[i*N + j]` give `(start, end)`
+/// offsets into them. Entries for unreachable pairs are still emitted (we
+/// don't know which pairs are reachable without running the dispatcher's
+/// full reachability analysis), but they cost only their few u16s of path
+/// data and a single `(u16, u16)` index slot — and `transition()` never
+/// looks them up at runtime.
+fn compute_transition_paths(states: &[StateIr]) -> TransitionPathTables {
+    let n = states.len();
+    let parent = |s: u16| -> Option<u16> { states[s as usize].parent };
+    let default_child = |s: u16| -> Option<u16> { states[s as usize].default_child };
+    let depth = |s: u16| -> i32 { states[s as usize].depth as i32 };
+
+    let lca = |mut a: u16, mut b: u16| -> Option<u16> {
+        let mut da = depth(a);
+        let mut db = depth(b);
+        while da > db {
+            a = parent(a)?;
+            da -= 1;
+        }
+        while db > da {
+            b = parent(b)?;
+            db -= 1;
+        }
+        while a != b {
+            a = parent(a)?;
+            b = parent(b)?;
+        }
+        Some(a)
+    };
+
+    let is_strict_ancestor = |anc: u16, desc: u16| -> bool {
+        let mut cur = parent(desc);
+        while let Some(c) = cur {
+            if c == anc {
+                return true;
+            }
+            cur = parent(c);
+        }
+        false
+    };
+
+    let compute_one = |from: u16, to: u16| -> (Vec<u16>, Vec<u16>) {
+        // Up-transition: target is a strict ancestor of current. Exit
+        // strictly between them; do not re-enter target.
+        if from != to && is_strict_ancestor(to, from) {
+            let mut exit_path = Vec::new();
+            let mut cur = from;
+            while cur != to {
+                exit_path.push(cur);
+                cur = parent(cur).expect("up-transition walk must reach `to`");
+            }
+            return (exit_path, Vec::new());
+        }
+
+        // Self-transition: external semantics — exit and re-enter target,
+        // then descend defaults.
+        if from == to {
+            let exit_path = vec![to];
+            let mut enter_path = vec![to];
+            let mut cur = default_child(to);
+            while let Some(c) = cur {
+                enter_path.push(c);
+                cur = default_child(c);
+            }
+            return (exit_path, enter_path);
+        }
+
+        // Lateral: exit `from` up to (not including) LCA; enter from
+        // LCA-child on `to`'s side down to `to`, then descend defaults.
+        let lca_id = lca(from, to);
+
+        let mut exit_path = Vec::new();
+        let mut cur = from;
+        loop {
+            if Some(cur) == lca_id {
+                break;
+            }
+            exit_path.push(cur);
+            match parent(cur) {
+                Some(p) => cur = p,
+                None => break,
+            }
+        }
+
+        let mut rev = Vec::new();
+        let mut cur = to;
+        loop {
+            if Some(cur) == lca_id {
+                break;
+            }
+            rev.push(cur);
+            match parent(cur) {
+                Some(p) => cur = p,
+                None => break,
+            }
+        }
+        let mut enter_path: Vec<u16> = rev.into_iter().rev().collect();
+
+        let mut cur = default_child(to);
+        while let Some(c) = cur {
+            enter_path.push(c);
+            cur = default_child(c);
+        }
+
+        (exit_path, enter_path)
+    };
+
+    let mut exit_data: Vec<u16> = Vec::new();
+    let mut enter_data: Vec<u16> = Vec::new();
+    let mut exit_range: Vec<(u16, u16)> = Vec::with_capacity(n * n);
+    let mut enter_range: Vec<(u16, u16)> = Vec::with_capacity(n * n);
+
+    for from in 0..n as u16 {
+        for to in 0..n as u16 {
+            let (ep, np) = compute_one(from, to);
+
+            let estart: u16 = exit_data
+                .len()
+                .try_into()
+                .expect("exit path data exceeds u16 offset range");
+            exit_data.extend(ep.iter().copied());
+            let eend: u16 = exit_data
+                .len()
+                .try_into()
+                .expect("exit path data exceeds u16 offset range");
+            exit_range.push((estart, eend));
+
+            let nstart: u16 = enter_data
+                .len()
+                .try_into()
+                .expect("enter path data exceeds u16 offset range");
+            enter_data.extend(np.iter().copied());
+            let nend: u16 = enter_data
+                .len()
+                .try_into()
+                .expect("enter path data exceeds u16 offset range");
+            enter_range.push((nstart, nend));
+        }
+    }
+
+    (exit_data, enter_data, exit_range, enter_range)
+}
+
+/// Static precompute of `do_terminate()`'s exit walk: for each leaf state,
+/// the chain `[current, parent(current), ..., __Root]` (root inclusive,
+/// since `__Root` may carry root-level `entry:`/`exit:` actions declared
+/// at the chart top level — see the `det_initial` test for that pattern).
+///
+/// Replaces the runtime `__PARENT` walk + per-iteration `match` in
+/// `do_terminate` with one indexed slice into a flat blob. The terminate
+/// path is always at most `H + 1` states long, so the total table size is
+/// bounded by `N × (H_max + 1)` — under a KiB for any practical chart.
+fn compute_terminate_paths(states: &[StateIr]) -> (Vec<u16>, Vec<(u16, u16)>) {
+    let n = states.len();
+    let parent = |s: u16| -> Option<u16> { states[s as usize].parent };
+
+    let mut data: Vec<u16> = Vec::new();
+    let mut range: Vec<(u16, u16)> = Vec::with_capacity(n);
+    for from in 0..n as u16 {
+        let start: u16 = data
+            .len()
+            .try_into()
+            .expect("terminate path data exceeds u16 offset range");
+        let mut cur = Some(from);
+        while let Some(s) = cur {
+            data.push(s);
+            cur = parent(s);
+        }
+        let end: u16 = data
+            .len()
+            .try_into()
+            .expect("terminate path data exceeds u16 offset range");
+        range.push((start, end));
+    }
+    (data, range)
+}
+
+/// Static precompute of the runtime event-bubble walk in `step()`.
+///
+/// Currently the dispatcher does:
+///
+/// ```text
+/// while let Some(s) = __cur {
+///     if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) { ... break; }
+///     __cur = __PARENT[s as usize];
+/// }
+/// ```
+///
+/// — at runtime, walking up `__PARENT` until a state with an `on(EventX)`
+/// handler is found. Each hop costs ~10-12 instructions (call + branch +
+/// load), and the depth depends on where the handler is declared. With
+/// every (state, event) pair statically resolvable from the chart, the
+/// walk collapses to one indexed lookup.
+///
+/// For each `(current_state, event_id)` pair we materialize:
+///   - `handler_state` — the deepest ancestor (or `current_state` itself)
+///     with a matching `on()` clause, or `u16::MAX` if no ancestor handles
+///     the event (runtime drops it).
+///   - `action_ids` — the aggregated action ids that the original
+///     `state_handler_arms` codegen would have produced for that
+///     (state, event) pair, in declaration order.
+///   - `target` — the transition target if any.
+///
+/// The aggregation rules mirror `state_handler_arms` exactly: per
+/// (state, event), action handlers stack into an ordered Vec and the
+/// (singular) transition target is captured if present. This is the
+/// same shape `__handler_lookup` returns, just resolved at codegen time
+/// for events. Timer triggers stay in `__handler_lookup` (the
+/// `dispatch_trigger` path doesn't bubble).
+fn compute_event_dispatch(ir: &Ir) -> Vec<(u16, Vec<u16>, Option<u16>)> {
+    use std::collections::BTreeMap;
+
+    let n_states = ir.states.len();
+    let n_events = ir.event_variants.len();
+
+    // Per-state, per-event handler resolution. Mirrors the aggregation in
+    // `state_handler_arms` (sort by decl_index, group by trigger).
+    let mut per_state: Vec<BTreeMap<u16, (Vec<u16>, Option<u16>)>> =
+        vec![BTreeMap::new(); n_states];
+    for (sid, state) in ir.states.iter().enumerate() {
+        let mut handlers = state.handlers.iter().collect::<Vec<_>>();
+        handlers.sort_by_key(|h| h.decl_index);
+        for h in handlers {
+            let event_id = match &h.trigger {
+                TriggerIr::Event(id, _, _) => *id,
+                TriggerIr::Duration(_) => continue,
+            };
+            let entry = per_state[sid].entry(event_id).or_default();
+            match &h.kind {
+                HandlerKindIr::Action(aid, _) => entry.0.push(*aid),
+                HandlerKindIr::Transition(_, Some(tid)) => entry.1 = Some(*tid),
+                HandlerKindIr::Transition(_, None) => {}
+            }
+        }
+    }
+
+    // For each (state, event_id), bubble up __PARENT and stop at the
+    // first state with a matching handler. No-handler ⇒ sentinel.
+    let mut out = Vec::with_capacity(n_states * n_events);
+    for state in 0..n_states {
+        for event_id in 0..n_events as u16 {
+            let mut cur = Some(state as u16);
+            let mut resolved: Option<(u16, Vec<u16>, Option<u16>)> = None;
+            while let Some(s) = cur {
+                if let Some((actions, target)) = per_state[s as usize].get(&event_id) {
+                    resolved = Some((s, actions.clone(), *target));
+                    break;
+                }
+                cur = ir.states[s as usize].parent;
+            }
+            out.push(resolved.unwrap_or((u16::MAX, Vec::new(), None)));
+        }
+    }
+
+    out
 }
 
 /// For each user-declared leaf state that has one or more `during:` activities
@@ -907,6 +1193,73 @@ pub fn generate(ir: &Ir) -> TokenStream {
         );
     };
 
+    // Codegen-static elide of the timer-table machinery for charts that
+    // declare no `Duration` triggers. The TimerTable is still constructed
+    // (the field is part of the machine struct so the generic parameters
+    // line up), but every per-step / per-exit call into it is gone — no
+    // empty-table branch, no `min_remaining()`-returns-None call, no
+    // `cancel_state()`. `step()` returns `None` directly for the
+    // next-tick deadline. For the bench charts (none of which arm
+    // timers) this drops several instructions per `step()` and one per
+    // `exit_state()`. `dispatch_trigger()` and the timer-fired arms
+    // remain in the binary but are unreachable; LLVM DCEs them.
+    let has_timers = !ir.duration_triggers.is_empty();
+    let timer_decrement_call = if has_timers {
+        quote! { self.timers.decrement(elapsed); }
+    } else {
+        quote! {}
+    };
+    let timer_pop_block_sync = if has_timers {
+        quote! {
+            if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
+                let __t_state = state;
+                let __t_trigger = trig;
+                #observe_timer_fired
+                if __duration_repeats(trig) {
+                    let d = __duration_for(trig);
+                    self.timers.start(state, trig, d);
+                    let sid = state;
+                    let tid = trig;
+                    #observe_timer_armed
+                }
+                self.dispatch_trigger(state, 1, trig);
+                return self.timers.min_remaining();
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let timer_pop_block_async = if has_timers {
+        quote! {
+            if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
+                let __t_state = state;
+                let __t_trigger = trig;
+                #observe_timer_fired
+                if __duration_repeats(trig) {
+                    let d = __duration_for(trig);
+                    self.timers.start(state, trig, d);
+                    let sid = state;
+                    let tid = trig;
+                    #observe_timer_armed
+                }
+                self.dispatch_trigger(state, 1, trig).await;
+                return self.timers.min_remaining();
+            }
+        }
+    } else {
+        quote! {}
+    };
+    let timer_min_remaining_expr = if has_timers {
+        quote! { self.timers.min_remaining() }
+    } else {
+        quote! { None }
+    };
+    let timer_cancel_state_call = if has_timers {
+        quote! { self.timers.cancel_state(sid); }
+    } else {
+        quote! {}
+    };
+
     // Per-state during count, used to emit DuringStarted/Cancelled
     // events one per declared during in the state.
     let durings_count_arms: Vec<TokenStream> = ir
@@ -971,6 +1324,74 @@ pub fn generate(ir: &Ir) -> TokenStream {
             None => quote! { None },
         })
         .collect::<Vec<_>>();
+    // Path data is concatenated [exit; enter] per pair into a single
+    // `__PATH_DATA` blob; one packed `(start, mid, end)` per pair indexes
+    // both halves. One range lookup, one base array — minimizes cold-cache
+    // line touches on the dispatch hot path (vs four separate tables).
+    let (
+        transition_exit_data,
+        transition_enter_data,
+        transition_exit_range,
+        transition_enter_range,
+    ) = compute_transition_paths(&ir.states);
+    let mut path_data: Vec<u16> =
+        Vec::with_capacity(transition_exit_data.len() + transition_enter_data.len());
+    let mut path_range: Vec<(u16, u16, u16)> = Vec::with_capacity(transition_exit_range.len());
+    for ((es, ee), (ns, ne)) in transition_exit_range
+        .iter()
+        .zip(transition_enter_range.iter())
+    {
+        let start: u16 = path_data
+            .len()
+            .try_into()
+            .expect("transition path data exceeds u16 offset range");
+        path_data.extend_from_slice(&transition_exit_data[*es as usize..*ee as usize]);
+        let mid: u16 = path_data
+            .len()
+            .try_into()
+            .expect("transition path data exceeds u16 offset range");
+        path_data.extend_from_slice(&transition_enter_data[*ns as usize..*ne as usize]);
+        let end: u16 = path_data
+            .len()
+            .try_into()
+            .expect("transition path data exceeds u16 offset range");
+        path_range.push((start, mid, end));
+    }
+    let path_data_len = path_data.len();
+    let n_pairs = n_states * n_states;
+    let path_data_lit: Vec<_> = path_data.iter().map(|x| quote! { #x }).collect();
+    let path_range_lit: Vec<_> = path_range
+        .iter()
+        .map(|(a, b, c)| quote! { (#a, #b, #c) })
+        .collect();
+    // Precomputed terminate-path table: for every state, the exit chain
+    // up to and including __Root. `do_terminate()` uses this instead of
+    // walking __PARENT at runtime.
+    let (terminate_data, terminate_range) = compute_terminate_paths(&ir.states);
+    let terminate_data_len = terminate_data.len();
+    let terminate_data_lit: Vec<_> = terminate_data.iter().map(|x| quote! { #x }).collect();
+    let terminate_range_lit: Vec<_> = terminate_range
+        .iter()
+        .map(|(a, b)| quote! { (#a, #b) })
+        .collect();
+
+    // Precomputed event-dispatch table: for every (state, event_id) pair,
+    // the resolved handler that the runtime bubble walk would have found.
+    // See `compute_event_dispatch` for encoding.
+    let dispatch_table = compute_event_dispatch(ir);
+    let n_events = ir.event_variants.len();
+    let n_dispatch = n_states * n_events;
+    let dispatch_lit: Vec<TokenStream> = dispatch_table
+        .iter()
+        .map(|(h_state, actions, target)| {
+            let actions_lit = actions.iter().map(|a| quote! { #a });
+            let target_tok = match target {
+                Some(t) => quote! { Some(#t) },
+                None => quote! { None },
+            };
+            quote! { (#h_state, &[#(#actions_lit),*], #target_tok) }
+        })
+        .collect();
     let state_id_to_variant_arms = ir
         .states
         .iter()
@@ -1998,6 +2419,51 @@ pub fn generate(ir: &Ir) -> TokenStream {
         const __DEPTH: [u8; #n_states] = [#(#depth_table),*];
         const __DEFAULT_CHILD: [Option<u16>; #n_states] = [#(#default_child_table),*];
 
+        // ── Precomputed transition paths ────────────────────────────
+        //
+        // For every (from, to) state pair, the exit-then-enter sequence
+        // a transition would walk is materialized at codegen time. The
+        // dispatch hot path (`fn transition`) becomes one range lookup
+        // and two straight loops; the runtime LCA depth-walk and the
+        // heapless::Vec ancestry construction are gone.
+        //
+        // Encoding: `__PATH_DATA` is the concatenation of every
+        // `[exit; enter]` slice. `__PATH_RANGE[i*N + j] = (s, m, e)`
+        // gives the boundaries: `exit = data[s..m]`, `enter = data[m..e]`.
+        // Empty enter slice (`m == e`) ⇒ up-transition, target excluded;
+        // otherwise the enter slice already includes the default-descent
+        // tail so no separate `descend_defaults()` call is needed.
+        //
+        // Folding both ranges into one struct halves the cold-cache
+        // line touches on first dispatch — the up-transition hot path
+        // does one indexed load instead of two.
+        const __PATH_DATA: [u16; #path_data_len] = [#(#path_data_lit),*];
+        const __PATH_RANGE: [(u16, u16, u16); #n_pairs] = [#(#path_range_lit),*];
+
+        // ── Precomputed terminate exit paths ───────────────────────
+        //
+        // For every starting state, the full exit chain up to and
+        // including __Root. `do_terminate()` indexes into this instead
+        // of walking __PARENT at runtime.
+        const __TERMINATE_DATA: [u16; #terminate_data_len] = [#(#terminate_data_lit),*];
+        const __TERMINATE_RANGE: [(u16, u16); #n_states] = [#(#terminate_range_lit),*];
+
+        // ── Precomputed event-dispatch table ────────────────────────
+        //
+        // For every (current_state, event_id) pair, the deepest ancestor
+        // state with an `on(EventX)` clause is resolved at codegen time.
+        // The runtime `step()` event-handling block does one indexed
+        // lookup instead of an `__PARENT` bubble walk + `__handler_lookup`
+        // call per ancestor.
+        //
+        // Entry layout: (handler_state, action_ids, transition_target).
+        // `handler_state == u16::MAX` is the no-handler sentinel — the
+        // event would have been dropped at runtime. The dropped/delivered
+        // observation arms key off that sentinel, preserving the existing
+        // journal vocabulary.
+        const __DISPATCH: [(u16, &'static [u16], Option<u16>); #n_dispatch] =
+            [#(#dispatch_lit),*];
+
         #name_helpers
 
         #[allow(dead_code, unreachable_patterns)]
@@ -2008,7 +2474,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
             }
         }
 
+        // Hot-path lookup helpers. `#[inline]` so LLVM folds the
+        // (typically jump-table) match directly into `step()` /
+        // `transition()` / `exit_state()`, removing a call+return per
+        // dispatched event and cutting one stack frame.
         #[allow(unreachable_code, unused_variables)]
+        #[inline]
         fn __duration_for(tid: u16) -> ::hsmc::Duration {
             match tid {
                 #(#duration_expr_arms)*
@@ -2017,6 +2488,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
         }
 
         #[allow(unreachable_code, unused_variables)]
+        #[inline]
         fn __duration_repeats(tid: u16) -> bool {
             match tid {
                 #(#duration_repeat_arms)*
@@ -2025,6 +2497,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
         }
 
         #[allow(unreachable_patterns, unused_variables)]
+        #[inline]
         fn __event_to_id(ev: &#ev_ty) -> u16 {
             match ev {
                 #(#event_variant_arms)*
@@ -2033,6 +2506,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
         }
 
         #[allow(unused_variables)]
+        #[inline]
         fn __handler_lookup(
             state_id: u16,
             trigger_kind: u8,
@@ -2046,6 +2520,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
         }
 
         #[allow(unused_variables)]
+        #[inline]
         fn __owned_timers(state_id: u16) -> &'static [u16] {
             match state_id {
                 #(#owned_timers_arms)*
@@ -2056,6 +2531,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
         enum TerminateCheck { Yes, No }
 
         #[allow(unused_variables)]
+        #[inline]
         fn __check_terminate(__ev: &#ev_ty) -> TerminateCheck {
             #terminate_match
             TerminateCheck::No
@@ -2188,25 +2664,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 if self.current.is_none() {
                     #observe_started
                     self.enter_path(0);
-                    return self.timers.min_remaining();
+                    return #timer_min_remaining_expr;
                 }
 
-                self.timers.decrement(elapsed);
+                #timer_decrement_call
 
-                if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
-                    let __t_state = state;
-                    let __t_trigger = trig;
-                    #observe_timer_fired
-                    if __duration_repeats(trig) {
-                        let d = __duration_for(trig);
-                        self.timers.start(state, trig, d);
-                        let sid = state;
-                        let tid = trig;
-                        #observe_timer_armed
-                    }
-                    self.dispatch_trigger(state, 1, trig);
-                    return self.timers.min_remaining();
-                }
+                #timer_pop_block_sync
 
                 if let Some(ev) = self.queue.pop_front() {
                     let __ev_id = __event_to_id(&ev);
@@ -2217,31 +2680,35 @@ pub fn generate(ir: &Ir) -> TokenStream {
                         return None;
                     }
                     if __ev_id != u16::MAX {
-                        let mut __cur = self.current;
-                        let mut __delivered = false;
-                        while let Some(s) = __cur {
-                            if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
-                                let __handler_state = s;
+                        // Resolve handler via precomputed __DISPATCH table:
+                        // one indexed lookup replaces the runtime __PARENT
+                        // bubble walk + per-hop __handler_lookup() call.
+                        // u16::MAX in the handler_state slot is the
+                        // no-handler sentinel.
+                        if let Some(__cur) = self.current {
+                            let __dispatch_idx =
+                                (__cur as usize) * #n_events + (__ev_id as usize);
+                            let (__handler_state, __actions, __target) =
+                                __DISPATCH[__dispatch_idx];
+                            if __handler_state != u16::MAX {
                                 #observe_event_delivered
                                 self.run_handlers(
-                                    s, actions, target, Some(&ev),
+                                    __handler_state, __actions, __target, Some(&ev),
                                     1u8, __ev_id, 0u16,
                                 );
-                                __delivered = true;
-                                break;
+                            } else {
+                                #observe_event_dropped
                             }
-                            __cur = __PARENT[s as usize];
-                        }
-                        if !__delivered {
+                        } else {
                             #observe_event_dropped
                         }
                     } else {
                         #observe_event_dropped
                     }
-                    return self.timers.min_remaining();
+                    return #timer_min_remaining_expr;
                 }
 
-                self.timers.min_remaining()
+                #timer_min_remaining_expr
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
@@ -2252,25 +2719,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 if self.current.is_none() {
                     #observe_started
                     self.enter_path(0).await;
-                    return self.timers.min_remaining();
+                    return #timer_min_remaining_expr;
                 }
 
-                self.timers.decrement(elapsed);
+                #timer_decrement_call
 
-                if let Some((state, trig)) = self.timers.pop_expired(&__DEPTH) {
-                    let __t_state = state;
-                    let __t_trigger = trig;
-                    #observe_timer_fired
-                    if __duration_repeats(trig) {
-                        let d = __duration_for(trig);
-                        self.timers.start(state, trig, d);
-                        let sid = state;
-                        let tid = trig;
-                        #observe_timer_armed
-                    }
-                    self.dispatch_trigger(state, 1, trig).await;
-                    return self.timers.min_remaining();
-                }
+                #timer_pop_block_async
 
                 if let Some(ev) = self.queue.pop_front() {
                     let __ev_id = __event_to_id(&ev);
@@ -2281,31 +2735,32 @@ pub fn generate(ir: &Ir) -> TokenStream {
                         return None;
                     }
                     if __ev_id != u16::MAX {
-                        let mut __cur = self.current;
-                        let mut __delivered = false;
-                        while let Some(s) = __cur {
-                            if let Some((actions, target)) = __handler_lookup(s, 0, __ev_id) {
-                                let __handler_state = s;
+                        // Same precomputed __DISPATCH lookup as the sync
+                        // branch; see that copy for the encoding notes.
+                        if let Some(__cur) = self.current {
+                            let __dispatch_idx =
+                                (__cur as usize) * #n_events + (__ev_id as usize);
+                            let (__handler_state, __actions, __target) =
+                                __DISPATCH[__dispatch_idx];
+                            if __handler_state != u16::MAX {
                                 #observe_event_delivered
                                 self.run_handlers(
-                                    s, actions, target, Some(&ev),
+                                    __handler_state, __actions, __target, Some(&ev),
                                     1u8, __ev_id, 0u16,
                                 ).await;
-                                __delivered = true;
-                                break;
+                            } else {
+                                #observe_event_dropped
                             }
-                            __cur = __PARENT[s as usize];
-                        }
-                        if !__delivered {
+                        } else {
                             #observe_event_dropped
                         }
                     } else {
                         #observe_event_dropped
                     }
-                    return self.timers.min_remaining();
+                    return #timer_min_remaining_expr;
                 }
 
-                self.timers.min_remaining()
+                #timer_min_remaining_expr
             }
 
             /// Push an event directly into the machine's queue (synchronous,
@@ -2488,143 +2943,48 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 __dispatch(&mut actx, aid, event).await;
             }
 
-            // §2.6: classify transitions by the relationship between the
-            // innermost active state `I` and the target `T`:
-            //   - Up-transition: T is already active (T is a strict ancestor
-            //     of I). Unwind the subtree strictly below T; do NOT exit or
-            //     re-enter T; do NOT descend into defaults. You cannot enter
-            //     a state you never left.
-            //   - Self-transition (T == I): external semantics — exit T and
-            //     re-enter it, then descend into defaults if T has children.
-            //   - Lateral: standard LCA semantics.
-            fn is_up_transition(current: Option<u16>, target: u16) -> bool {
-                let Some(mut node) = current else { return false; };
-                if node == target { return false; }
-                while let Some(p) = __PARENT[node as usize] {
-                    if p == target { return true; }
-                    node = p;
-                }
-                false
-            }
-
+            // §2.6 transition shapes (up / self / lateral) are folded
+            // into the precomputed path tables emitted at codegen time.
+            // An empty enter slice (`m == e`) means up-transition: target
+            // is already on the active path, must not be re-entered, and
+            // `self.current` is set to `target` after the exit loop. A
+            // non-empty enter slice ends at the deepest default-descended
+            // leaf; `enter_state_no_descent` sets `self.current` as it
+            // goes, so no fixup is needed on that path.
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                if Self::is_up_transition(self.current, target) {
-                    if let Some(mut cur) = self.current {
-                        while cur != target {
-                            self.exit_state(cur);
-                            match __PARENT[cur as usize] {
-                                Some(p) => cur = p,
-                                None => break,
-                            }
-                        }
-                    }
+                let from = self.current.unwrap_or(target);
+                let idx = (from as usize) * #n_states + (target as usize);
+                let (s, m, e) = __PATH_RANGE[idx];
+                let exit_path = &__PATH_DATA[s as usize..m as usize];
+                let enter_path = &__PATH_DATA[m as usize..e as usize];
+                for &sid in exit_path {
+                    self.exit_state(sid);
+                }
+                for &sid in enter_path {
+                    self.enter_state_no_descent(sid);
+                }
+                if enter_path.is_empty() {
                     self.current = Some(target);
-                    return;
                 }
-
-                let mut lca = Self::lca(self.current.unwrap_or(target), target);
-                if self.current == Some(target) {
-                    // Self-transition: bump LCA so target is exited and re-entered.
-                    lca = __PARENT[target as usize];
-                }
-                if let Some(mut cur) = self.current {
-                    loop {
-                        if Some(cur) == lca { break; }
-                        self.exit_state(cur);
-                        match __PARENT[cur as usize] {
-                            Some(p) => cur = p,
-                            None => break,
-                        }
-                    }
-                }
-                let mut path: ::hsmc::__private::heapless::Vec<u16, 16> =
-                    ::hsmc::__private::heapless::Vec::new();
-                let mut node = Some(target);
-                while node != lca && node.is_some() {
-                    let n = node.unwrap();
-                    let _ = path.push(n);
-                    node = __PARENT[n as usize];
-                }
-                for i in (0..path.len()).rev() {
-                    let s = path[i];
-                    self.enter_state_no_descent(s);
-                }
-                self.descend_defaults(target);
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                if Self::is_up_transition(self.current, target) {
-                    if let Some(mut cur) = self.current {
-                        while cur != target {
-                            self.exit_state(cur).await;
-                            match __PARENT[cur as usize] {
-                                Some(p) => cur = p,
-                                None => break,
-                            }
-                        }
-                    }
+                let from = self.current.unwrap_or(target);
+                let idx = (from as usize) * #n_states + (target as usize);
+                let (s, m, e) = __PATH_RANGE[idx];
+                let exit_path = &__PATH_DATA[s as usize..m as usize];
+                let enter_path = &__PATH_DATA[m as usize..e as usize];
+                for &sid in exit_path {
+                    self.exit_state(sid).await;
+                }
+                for &sid in enter_path {
+                    self.enter_state_no_descent(sid).await;
+                }
+                if enter_path.is_empty() {
                     self.current = Some(target);
-                    return;
                 }
-
-                let mut lca = Self::lca(self.current.unwrap_or(target), target);
-                if self.current == Some(target) {
-                    lca = __PARENT[target as usize];
-                }
-                if let Some(mut cur) = self.current {
-                    loop {
-                        if Some(cur) == lca { break; }
-                        self.exit_state(cur).await;
-                        match __PARENT[cur as usize] {
-                            Some(p) => cur = p,
-                            None => break,
-                        }
-                    }
-                }
-                let mut path: ::hsmc::__private::heapless::Vec<u16, 16> =
-                    ::hsmc::__private::heapless::Vec::new();
-                let mut node = Some(target);
-                while node != lca && node.is_some() {
-                    let n = node.unwrap();
-                    let _ = path.push(n);
-                    node = __PARENT[n as usize];
-                }
-                for i in (0..path.len()).rev() {
-                    let s = path[i];
-                    self.enter_state_no_descent(s).await;
-                }
-                self.descend_defaults(target).await;
-            }
-
-            // Lowest common ancestor via depth-walk. The chart's
-            // `__DEPTH` table is precomputed at codegen time, so we can
-            // align both walkers to the same depth and then ascend in
-            // lockstep until they meet. O(H) time, O(1) space — no
-            // ancestry-set allocation, no hierarchy ceiling.
-            fn lca(mut a: u16, mut b: u16) -> Option<u16> {
-                let mut da = __DEPTH[a as usize];
-                let mut db = __DEPTH[b as usize];
-                while da > db {
-                    match __PARENT[a as usize] {
-                        Some(p) => { a = p; da -= 1; }
-                        None => return None,
-                    }
-                }
-                while db > da {
-                    match __PARENT[b as usize] {
-                        Some(p) => { b = p; db -= 1; }
-                        None => return None,
-                    }
-                }
-                while a != b {
-                    match (__PARENT[a as usize], __PARENT[b as usize]) {
-                        (Some(pa), Some(pb)) => { a = pa; b = pb; }
-                        _ => return None,
-                    }
-                }
-                Some(a)
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
@@ -2708,7 +3068,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 for &tid in __owned_timers(sid) {
                     #observe_timer_cancelled
                 }
-                self.timers.cancel_state(sid);
+                #timer_cancel_state_call
                 let exits = Self::exits_of(sid);
                 for &aid in exits {
                     #observe_action_exit
@@ -2726,7 +3086,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 for &tid in __owned_timers(sid) {
                     #observe_timer_cancelled
                 }
-                self.timers.cancel_state(sid);
+                #timer_cancel_state_call
                 let exits = Self::exits_of(sid);
                 for &aid in exits {
                     #observe_action_exit
@@ -2736,12 +3096,14 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 #observe_exited
             }
 
+            #[inline]
             fn entries_of(sid: u16) -> &'static [u16] {
                 match sid {
                     #(#entries_of_arms)*
                     _ => &[],
                 }
             }
+            #[inline]
             fn exits_of(sid: u16) -> &'static [u16] {
                 match sid {
                     #(#exits_of_arms)*
@@ -2759,35 +3121,31 @@ pub fn generate(ir: &Ir) -> TokenStream {
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn do_terminate(&mut self) {
-                if let Some(mut cur) = self.current {
-                    loop {
-                        self.exit_state(cur);
-                        match __PARENT[cur as usize] {
-                            Some(p) => cur = p,
-                            None => break,
-                        }
+                if let Some(cur) = self.current {
+                    let (s, e) = __TERMINATE_RANGE[cur as usize];
+                    let path = &__TERMINATE_DATA[s as usize..e as usize];
+                    for &sid in path {
+                        self.exit_state(sid);
                     }
                 }
                 self.terminated = true;
                 self.current = None;
-                while self.queue.pop_front().is_some() {}
+                self.queue.clear();
                 #observe_terminated
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn do_terminate(&mut self) {
-                if let Some(mut cur) = self.current {
-                    loop {
-                        self.exit_state(cur).await;
-                        match __PARENT[cur as usize] {
-                            Some(p) => cur = p,
-                            None => break,
-                        }
+                if let Some(cur) = self.current {
+                    let (s, e) = __TERMINATE_RANGE[cur as usize];
+                    let path = &__TERMINATE_DATA[s as usize..e as usize];
+                    for &sid in path {
+                        self.exit_state(sid).await;
                     }
                 }
                 self.terminated = true;
                 self.current = None;
-                while self.queue.pop_front().is_some() {}
+                self.queue.clear();
                 #observe_terminated
             }
 

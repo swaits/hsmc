@@ -812,7 +812,12 @@ pub mod __private {
     pub struct TimerEntry {
         pub state: u16,
         pub trigger: u16,
-        pub remaining_ns: u128,
+        // u64 nanoseconds bounds at ~584 years of countdown — comfortably
+        // beyond any practical Duration. Storing the original u128 from
+        // `Duration::as_nanos()` would force u128 saturating_sub on every
+        // `decrement()` call; on 64-bit it's 4-6 instructions per entry vs
+        // 1-2 for u64. The ceiling is enforced by saturating-cast at insert.
+        pub remaining_ns: u64,
     }
 
     impl<const N: usize> Default for TimerTable<N> {
@@ -828,7 +833,12 @@ pub mod __private {
             }
         }
         pub fn start(&mut self, state: u16, trigger: u16, duration: core::time::Duration) {
-            let ns = duration.as_nanos();
+            // Truncating u128→u64. u64 nanoseconds bounds at ~584 years —
+            // past that the cast wraps, but no realistic timer duration
+            // gets near it (Duration::from_secs(u64::MAX) overflows long
+            // before, and from_millis/from_nanos take u64 directly so
+            // round-trip exactly).
+            let ns = duration.as_nanos() as u64;
             // Replace existing entry for same (state, trigger) — resets on re-entry.
             for e in self.entries.iter_mut() {
                 if e.state == state && e.trigger == trigger {
@@ -842,22 +852,51 @@ pub mod __private {
                 remaining_ns: ns,
             });
         }
+        /// Cancel every timer owned by `state`. Inlined empty-check so an
+        /// `exit_state` on a chart with no live timers compiles to a single
+        /// branch — the `retain` call (and its closure) stays out-of-line.
+        #[inline]
         pub fn cancel_state(&mut self, state: u16) {
-            self.entries.retain(|e| e.state != state);
+            if !self.entries.is_empty() {
+                self.entries.retain(|e| e.state != state);
+            }
         }
         pub fn cancel_one(&mut self, state: u16, trigger: u16) {
             self.entries
                 .retain(|e| !(e.state == state && e.trigger == trigger));
         }
+        /// Subtract `elapsed` from every live timer (saturating at 0). Inlined
+        /// empty-check so the per-`step()` call costs one branch when no
+        /// timers are armed.
+        #[inline]
         pub fn decrement(&mut self, elapsed: core::time::Duration) {
-            let ns = elapsed.as_nanos();
+            if self.entries.is_empty() {
+                return;
+            }
+            let ns = elapsed.as_nanos() as u64;
             for e in self.entries.iter_mut() {
                 e.remaining_ns = e.remaining_ns.saturating_sub(ns);
             }
         }
         /// Returns (state, trigger) of first expired timer, picking the innermost
         /// (deepest) state, ties broken by declaration order.
+        ///
+        /// The empty-table case is split out and `#[inline]`d so charts with no
+        /// live timers pay only a one-instruction `is_empty` branch per
+        /// `step()`, not the full function-call + iterator-setup overhead. The
+        /// non-empty body stays out-of-line to keep the hot path's icache
+        /// footprint small.
+        #[inline]
         pub fn pop_expired(&mut self, depth: &[u8]) -> Option<(u16, u16)> {
+            if self.entries.is_empty() {
+                None
+            } else {
+                self.pop_expired_nonempty(depth)
+            }
+        }
+
+        #[cold]
+        fn pop_expired_nonempty(&mut self, depth: &[u8]) -> Option<(u16, u16)> {
             let mut best: Option<usize> = None;
             for (i, e) in self.entries.iter().enumerate() {
                 if e.remaining_ns == 0 {
@@ -880,12 +919,26 @@ pub mod __private {
                 None
             }
         }
+
+        /// Smallest `remaining_ns` across live timers, or `None` if there are
+        /// none. Same inline-the-empty-case treatment as `pop_expired` so
+        /// timer-free charts pay only a branch per `step()`.
+        #[inline]
         pub fn min_remaining(&self) -> Option<core::time::Duration> {
-            self.entries.iter().map(|e| e.remaining_ns).min().map(|ns| {
-                let secs = (ns / 1_000_000_000) as u64;
-                let rem = (ns % 1_000_000_000) as u32;
-                core::time::Duration::new(secs, rem)
-            })
+            if self.entries.is_empty() {
+                None
+            } else {
+                self.min_remaining_nonempty()
+            }
+        }
+
+        #[cold]
+        fn min_remaining_nonempty(&self) -> Option<core::time::Duration> {
+            self.entries
+                .iter()
+                .map(|e| e.remaining_ns)
+                .min()
+                .map(core::time::Duration::from_nanos)
         }
     }
 

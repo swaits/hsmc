@@ -4,6 +4,87 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Performance — dispatch hot path
+
+Six codegen-side optimization passes against `step()` and friends. No
+user-facing API changes; all 296 tests pass under `--no-default-features`,
+`--features tokio`, `--features embassy`, and `--features tokio,journal`.
+Cumulative on `h8_cross_tree` (the deepest dispatch in the bench suite):
+**−82% instructions / −72% cycles** vs the pre-`pre_lca_fix` baseline.
+See `hsmc/benches/baseline.txt` for per-pass delta blocks and
+`docs/003. latency-analysis.md` §1/§9/§12 for the cost-surface analysis.
+
+- **Precomputed transition paths.** For every `(from, to)` state pair,
+  codegen materializes the exit/enter sequence into a single flat
+  `__PATH_DATA` blob with a `__PATH_RANGE: [(u16, u16, u16); N²]`
+  index. `transition()` becomes one indexed range lookup + two slice
+  loops; the `lca()` runtime helper, `is_up_transition()`, and the
+  per-call `heapless::Vec<u16, 16>` ancestry build are gone. Up /
+  self / lateral semantics are baked into the table (empty enter
+  slice ⇒ up-transition, target excluded; non-empty enter slice
+  includes the default-descent tail). Hierarchy depth is no longer
+  bounded by the old 32-state Vec capacity.
+- **Precomputed event-dispatch table.** For every `(state, event)`
+  pair, codegen resolves the handler the runtime `__PARENT` bubble
+  walk would have found. `__DISPATCH: [(u16, &'static [u16],
+  Option<u16>); N×E]` stores `(handler_state, action_ids,
+  transition_target)` per pair; `u16::MAX` in the handler-state slot
+  is the no-handler sentinel. The runtime walk + per-hop
+  `__handler_lookup` call in `step()` collapses to one indexed lookup.
+  Handler resolution is now O(1) regardless of bubble depth — the
+  `bubble_top` bench (4-hop walk) is now within 3 instructions of
+  `bubble_leaf` (handler on current state). `__handler_lookup` is
+  retained for timer dispatch (the `dispatch_trigger` path doesn't
+  bubble).
+- **Precomputed terminate exit path.** Per-state `__TERMINATE_DATA`
+  table holds the full exit chain up to and including `__Root` (which
+  may carry root-level `entry:`/`exit:` actions). `do_terminate()`
+  indexes the table once and iterates the slice, replacing the
+  runtime `__PARENT` walk + per-iteration match. Queue drain switched
+  from `while pop_front().is_some()` to `Deque::clear()` (heapless
+  0.8 implements this as O(1) — resets indices instead of popping
+  each entry). `terminate_event` bench: −22.5% instr / −23.4% cycles.
+- **TimerTable empty-skip.** `pop_expired`, `min_remaining`,
+  `decrement`, and `cancel_state` each get `#[inline]` + an
+  `is_empty()` early-out, with the non-empty body split into a
+  `#[cold]` helper. Runtime branch on charts with timers; the body
+  stays out-of-line.
+- **Codegen-static timer-machinery elide.** When a chart declares no
+  `Duration` triggers (the common case for event-driven HSMs), every
+  `TimerTable` call is omitted from `step()` and `exit_state()` at
+  codegen. `step()` returns `None` directly for the next-tick
+  deadline. `dispatch_trigger()` and the timer-fired arms remain in
+  the binary but are unreachable; LLVM DCEs them.
+- **`TimerEntry.remaining_ns: u128 → u64`.** Internal-only field type
+  change. u64 nanoseconds bounds at ~584 years — comfortably past any
+  realistic `Duration`. Eliminates u128 saturating-sub in
+  `decrement()` (4–6 instructions per entry → 1–2) and the manual
+  secs/nanos decomposition in `min_remaining()` (replaced with
+  `Duration::from_nanos`). The struct shrinks 32 B → 16 B with
+  alignment, so the entire machine struct gets smaller — every bench's
+  RAM-hit count drops from tighter cache packing.
+
+### Bench coverage
+
+Four new benches added to cover hot paths the original suite missed:
+
+- **`bubble_leaf` / `bubble_mid` / `bubble_top`** — handler resolution
+  at varying ancestor depths (0 / 3 / 4 hops) on a single chart.
+  Quantifies the bubble-walk cost as a function of distance, and
+  confirms the `__DISPATCH` table makes resolution depth-independent.
+- **`timer_fire_dispatch`** — only bench that exercises
+  `pop_expired`'s non-empty branch and `dispatch_trigger`. The most
+  expensive single-step bench in the suite (191 instr / 706 cycles).
+- **`terminate_event`** — only bench exercising `__check_terminate`'s
+  true arm and `do_terminate`. 69 instr / 311 cycles.
+- **`bubble_cross_tree`** — handler on L1 (4 bubble hops up from
+  current=L5) targets R5 in a sibling subtree (10-state cross-tree
+  transition). Realistic HSM worst case; 94 instr / 444 cycles —
+  almost the same as a plain 7-deep cross-tree because both bubble
+  resolution and transition path are now O(1) lookups.
+
 ## 0.4.0 — 2026-04-28
 
 ### Changed — observability (breaking)

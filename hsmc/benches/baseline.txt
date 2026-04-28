@@ -1,84 +1,176 @@
 # hsmc dispatch baseline — instruction counts from iai-callgrind.
 #
-# Current numbers reflect the codebase after the LCA O(H) depth-walk fix
-# (replaced the original O(H²) heapless::Vec<u16,32>::contains scan).
+# Current numbers reflect the codebase after the terminate-path + u64-ns
+# pass. `do_terminate()` indexes into a precomputed `__TERMINATE_DATA`
+# table (one slice per starting state, root inclusive); `TimerEntry`'s
+# `remaining_ns` field shrunk from u128 to u64 (~584 years of headroom),
+# halving the entry size and replacing per-step u128 saturating-sub work
+# with u64. The smaller machine struct improves cache density on every
+# bench, even those that don't use timers.
+#
 # Re-run with:
 #
 #     cargo bench --bench dispatch
 #
-# The pre-fix `pre_lca_fix` baseline is saved under target/iai/. To diff
-# a future change against the current numbers, save a fresh named baseline
-# before the change:
+# Named baselines under target/iai/ for diffing past changes:
+#   pre_lca_fix                       — original O(H²) LCA contains() scan
+#   before_path_precompute            — post-LCA-fix, pre-precompute
+#   before_timer_skip                 — post-precompute, pre-timer-skip (runtime is_empty)
+#   before_dispatch_precompute        — post-timer-skip, pre-dispatch-table
+#   before_timer_elide                — post-dispatch-table, pre-codegen-elide
+#   before_terminate_and_timer_opts   — post-codegen-elide, pre-terminate-path / u64
+#
+# To diff a future change against the current numbers:
 #
 #     cargo bench --bench dispatch -- --save-baseline=before_<your_change>
-#
-# Then after, diff with:
-#
+#     <change>
 #     cargo bench --bench dispatch -- --baseline=before_<your_change>
 #
 # Numbers below are from a 6.19.14-zen kernel x86_64 box, valgrind 3.25.1,
 # iai-callgrind 0.16.1, --release.
 
 dispatch::dispatch::h2_cold_start cold:setup_h2_cold()
-  Instructions:                          51
-  L1 Hits:                               79
-  LL Hits:                                0
-  RAM Hits:                               7
-  Estimated Cycles:                     324
+  Instructions:                          38
+  Estimated Cycles:                     201
 
 dispatch::dispatch::h2_warm_lateral warm:setup_h2_warm()
-  Instructions:                         210
-  L1 Hits:                              268
-  LL Hits:                                0
-  RAM Hits:                              21
-  Estimated Cycles:                    1003
+  Instructions:                          84
+  Estimated Cycles:                     397
 
 dispatch::dispatch::h4_cross_tree cross:setup_h4_warm()
-  Instructions:                         394
-  L1 Hits:                              497
-  LL Hits:                                0
-  RAM Hits:                              26
-  Estimated Cycles:                    1407
+  Instructions:                         101
+  Estimated Cycles:                     456
 
 dispatch::dispatch::h4_up up:setup_h4_warm()
-  Instructions:                         203
-  L1 Hits:                              270
-  LL Hits:                                0
-  RAM Hits:                              16
-  Estimated Cycles:                     830
+  Instructions:                          98
+  Estimated Cycles:                     384
 
 dispatch::dispatch::h4_self self_:setup_h4_warm()
-  Instructions:                         233
-  L1 Hits:                              297
-  LL Hits:                                0
-  RAM Hits:                              24
-  Estimated Cycles:                    1137
+  Instructions:                         101
+  Estimated Cycles:                     456
 
 dispatch::dispatch::h8_cross_tree cross:setup_h8_warm()
-  Instructions:                         508
-  L1 Hits:                              636
-  LL Hits:                                0
-  RAM Hits:                              27
-  Estimated Cycles:                    1581
+  Instructions:                          93
+  Estimated Cycles:                     443
+
+dispatch::dispatch::bubble_leaf leaf:setup_bubble_warm()
+  Instructions:                          99
+  Estimated Cycles:                     453
+
+dispatch::dispatch::bubble_mid mid:setup_bubble_warm()
+  Instructions:                          99
+  Estimated Cycles:                     453
+
+dispatch::dispatch::bubble_top top:setup_bubble_warm()
+  Instructions:                          99
+  Estimated Cycles:                     453
+
+dispatch::dispatch::timer_fire_dispatch fire:setup_timer_fire_armed()
+  Instructions:                         191
+  Estimated Cycles:                     706
+
+dispatch::dispatch::terminate_event quit:setup_term_warm()
+  Instructions:                          69
+  Estimated Cycles:                     311
+
+dispatch::dispatch::bubble_cross_tree switch:setup_bubble_cross_warm()
+  Instructions:                          94
+  Estimated Cycles:                     444
 
 dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
-  Instructions:                        1036
-  L1 Hits:                             1348
-  LL Hits:                                1
-  RAM Hits:                              33
-  Estimated Cycles:                    2508
+  Instructions:                         419
+  Estimated Cycles:                    1301
 
-# ─── LCA O(H) fix delta (pre_lca_fix → current) ─────────────────────
+# ─── LCA O(H) fix delta (pre_lca_fix → before_path_precompute) ──────
 #
 # Bench               Instr Δ      Cycle Δ
-# h2_cold_start       -1.9%        -0.3%       (priming step, doesn't use LCA — noise)
 # h2_warm_lateral    -22.8%       -22.1%
 # h4_cross_tree      -25.9%       -10.6%
-# h4_up               +1.0%        +0.4%       (up-transition doesn't use LCA — noise)
 # h4_self            -21.5%       -11.7%
-# h8_cross_tree      -46.2%       -41.0%       ← headline: deepest LCA stress
+# h8_cross_tree      -46.2%       -41.0%       ← deepest LCA stress
 # chain_self_emit    -15.4%       -10.4%
 #
-# Improvement scales with hierarchy depth: O(H²) → O(H) shows up most
-# on h8_cross_tree (LCA = root, full ancestry walk both sides). Up- and
-# cold-start paths show ±1% noise — they don't go through lca().
+# ─── Precompute-paths delta (before_path_precompute → before_timer_skip) ──
+#
+# Bench               Instr Δ      Cycle Δ
+# h2_warm_lateral    -19.5%        -4.8%
+# h4_cross_tree      -45.0%       -28.6%
+# h8_cross_tree      -48.6%       -34.8%
+# chain_self_emit    -28.1%       -14.6%
+#
+# ─── Timer empty-skip delta (before_timer_skip → before_dispatch_precompute) ──
+#
+# Bench               Instr Δ      Cycle Δ
+# h2_warm_lateral    -30.8%       -35.1%
+# h4_cross_tree      -38.4%       -35.4%
+# h8_cross_tree      -54.4%       -52.9%
+# chain_self_emit    -27.9%       -29.2%
+#
+# ─── Dispatch-table delta (before_dispatch_precompute → before_timer_elide) ──
+#
+# Bench               Instr Δ      Cycle Δ
+# bubble_mid         -19.4%        -4.7%       3-hop __PARENT walk → table lookup
+# bubble_top         -22.3%        -5.8%       4-hop walk → table lookup
+# h8_cross_tree       +4.2%       +15.8%       cold-cache miss on __DISPATCH (warm-cache neutral)
+#
+# ─── Timer-elide delta (before_timer_elide → before_terminate_and_timer_opts) ──
+#
+# Bench               Instr Δ      Cycle Δ
+# h2_warm_lateral    -26.9%        -9.7%
+# h4_cross_tree      -22.2%       -20.1%
+# h8_cross_tree      -24.2%       -20.8%
+# bubble_top         -22.1%       -23.2%
+# chain_self_emit    -18.0%        -8.4%
+#
+# ─── Terminate-path + u64-ns delta (before_terminate_and_timer_opts → current) ──
+#
+# Bench                  Instr Δ      Cycle Δ      Notes
+# h2_cold_start          -2.6%       -14.1%       smaller machine struct, tighter cache
+# h2_warm_lateral        -3.4%       -21.2%       (RAM hits 11→8)
+# h4_cross_tree          -3.8%        -1.7%
+# h4_up                  -3.9%       -22.3%       (RAM hits 10→7)
+# h4_self                -3.8%        -8.4%
+# h8_cross_tree          -1.1%        -0.7%
+# bubble_leaf            -6.6%        -9.6%
+# bubble_mid             -6.6%        -3.0%
+# bubble_top             -6.6%        -9.6%
+# timer_fire_dispatch    +2.7%       -12.6%       smaller TimerEntry → -3 RAM hits
+# terminate_event       -22.5%       -23.4%       ← headline: precomputed exit path + queue.clear()
+# bubble_cross_tree      -2.1%        -0.9%
+# chain_self_emit        -0.9%        -3.1%
+#
+# Two changes in this pass:
+#
+# (1) `__TERMINATE_DATA` / `__TERMINATE_RANGE` — per-state precomputed
+# exit chain up to and including __Root. `do_terminate()` indexes the
+# table once and iterates the slice, replacing the runtime `__PARENT`
+# walk + per-iteration match. Also swapped the queue-drain loop
+# (`while self.queue.pop_front().is_some() {}`) for `self.queue.clear()`,
+# which heapless 0.8 implements as O(1) (resets indices, no per-element
+# pop). Together: -22% instr / -23% cycles on terminate_event, the
+# headline win the user asked for.
+#
+# (2) `TimerEntry.remaining_ns: u128 → u64`. Internal-only field type
+# change. u64 nanoseconds bounds at ~584 years — past any realistic
+# Duration. Eliminates u128 saturating-sub in `decrement()` (4-6 instr
+# → 1-2 instr per entry per step) and the manual secs/nanos
+# decomposition in `min_remaining()` (replaced with
+# `Duration::from_nanos(u64)`). The struct shrinks 32 B → 16 B with
+# alignment, so the entire machine struct is smaller — even no-timer
+# benches see RAM-hit reductions from tighter cache packing.
+#
+# Net across the six optimization passes (pre_lca_fix → current):
+# h8_cross_tree dispatch is **-82% instructions / -72% cycles** vs the
+# original O(H²) LCA scan. terminate_event is now 69 instr / 311 cycles
+# — about 80% of that is the iai-callgrind wrapper, leaving ~14 instr
+# of actual HSM termination work for a 3-deep chart.
+#
+# ─── Bench coverage (3 benches added in the previous pass) ──────────
+#
+# `timer_fire_dispatch` (191 instr / 706 cycles) — only bench that
+# exercises pop_expired's non-empty branch and `dispatch_trigger`.
+# `terminate_event` (69 instr / 311 cycles) — only bench that
+# exercises `__check_terminate`'s true arm and `do_terminate`.
+# `bubble_cross_tree` (94 instr / 444 cycles) — handler on L1 (4
+# bubble hops) firing a 10-state cross-tree transition. Realistic
+# HSM worst case.
