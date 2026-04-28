@@ -35,7 +35,7 @@ trace-tracing = ["dep:tracing"]
 journal       = []
 
 [dependencies]
-hsmc-macros = { path = "../hsmc-macros", version = "0.2.0" }
+hsmc-macros = { path = "../hsmc-macros", version = "0.3.0" }
 heapless = "0.8"
 tokio = { version = "1", features = ["sync", "time", "rt", "macros"], optional = true }
 embassy-sync = { version = "0.8", optional = true }

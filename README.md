@@ -40,8 +40,150 @@ statechart! {
 - **`m.run().await` is the whole task body.** Races active durings, the
   external event channel, and timer deadlines. The MCU sleeps between
   events (embassy's cooperative executor parks all futures).
-- **Backward-compatible.** Every v0.1 statechart compiles under v0.2
-  unchanged.
+- **Deterministic + mechanically verified.** The `journal` feature
+  records every action, transition, timer, and event in order — same
+  inputs, byte-identical journal. The runtime queue and timer table
+  carry Pearlite specs that Creusot + Why3 + alt-ergo + z3 discharge
+  mechanically (`just verify`). 113 byte-equal expected-vs-actual
+  journal tests anchor every spec rule.
+- **Backward-compatible.** Every v0.1 / v0.2 statechart compiles under
+  v0.3 unchanged.
+
+## How a chart behaves — the building blocks
+
+Eight rules, each building on the previous. Internalize these and every
+edge case below falls out — you don't have to memorize anything else.
+
+The full canonical reference lives at
+[`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md);
+this section is the on-ramp.
+
+### 1. The active path — you are in every state from root to leaf
+
+At any moment, the machine is in a **path** of states from the root down
+to one innermost state. If you're in `C` inside `B` inside `A`, you're
+**simultaneously** in `Root`, `A`, `B`, and `C`. The root is always
+active until termination.
+
+This is the most important rule. Every rule below is downstream of it.
+If a behavior somewhere else seems weird, come back here — it's
+probably the resolution.
+
+### 2. Default-descent — composites auto-enter their default child
+
+Every state with children declares one `default(...)`. When a composite
+state is entered, its entry actions run first, **then** the default
+child is entered, recursively, until a leaf.
+
+So `Root` with `default(A)` and `A` with `default(B)` means: the
+machine starts by entering `Root` → `A` → `B`, all on first step.
+
+### 3. Event bubbling — leaf first, first handler wins
+
+An event arrives. Search starts at the **innermost** active state. If
+that state has a handler, it runs and the event is consumed. If not,
+walk up to the parent and check there. Repeat. If you reach the root
+with no handler, the event is silently discarded.
+
+Three corollaries:
+- Leaf shadows ancestor for the same trigger.
+- Multiple handlers in one state on the same trigger fire in
+  declaration order; the transition (if any) fires last.
+- **Timers don't bubble.** A timer belongs to the state that declared
+  it; it fires only in that state's scope.
+
+### 4. Transitions — exit to LCA, enter to target
+
+Any transition's algorithm is uniform:
+
+1. Find the LCA (lowest common ancestor) of current and target.
+2. Walk **up** from current, exiting each state, until you hit the LCA.
+   The LCA itself is **not** exited.
+3. Walk **down** from the LCA to target, entering each state. The LCA
+   is **not** re-entered.
+4. If target has children, default-descend (rule 2).
+
+The LCA always exists because root is always an upper bound. State
+names are globally unique across the chart, so a transition can target
+**any** state — siblings, cousins, ancestors, the root itself
+(`on(Trig) => MyChart;`).
+
+### 5. The up-transition rule — never re-enter what you never left
+
+If your transition target is **already on the active path** (i.e., it's
+an ancestor of the innermost state), then steps 3 and 4 of the
+transition algorithm do nothing. You exit the states strictly between
+current and target; the target itself is **not** re-entered.
+
+So from leaf `C` inside `B` inside `A`, an `on(Up) => A;` exits `C`
+then `B`. `A`'s entry actions don't fire. `A`'s `default` is not
+followed. `A`'s timers don't restart. `A`'s durings keep running.
+
+You cannot enter a state you never left.
+
+### 6. Entry / exit ordering
+
+Direction is set by the path:
+
+- **Entries** fire **outer-to-inner**: when entering down through a
+  path, the outermost state's entries fire first, then the next, then
+  the leaf's. Within a single state, entry actions fire in declaration
+  order. After a state's entries finish, its `during:` activities
+  start. Then default-descent (rule 2) applies recursively.
+- **Exits** fire **inner-to-outer**: leaf first, then parent, then
+  grandparent. Within a single state, exit actions fire in declaration
+  order. Before a state's exits begin, its `during:` activities are
+  cancelled.
+
+So a full transition reads: cancel durings on the way out → run exits
+on the way out → run entries on the way in → start durings on the way
+in.
+
+### 7. Timers — armed by state lifecycle
+
+A timer (`on(after D) => …` or `on(every D) => …`) is **armed** when
+its declaring state is entered, **cancelled** when that state is
+exited. Descending into a child is *not* an exit, so the parent's
+timers keep running while you're in a child. Re-entering a state
+restarts its timers from zero.
+
+### 8. emit / during / termination — all built on the rules above
+
+- **`emit(ev)`** from inside an action queues an event. The runtime
+  finishes the current event's handling — including every entry/exit
+  in the resulting transition — **before** dequeuing the new event.
+  No re-entrant dispatch.
+- **`during:`** is an async future tied to its state's lifecycle. It
+  starts after the state's entry actions finish and is cancelled (the
+  future is dropped) before the state's exit actions begin. Multiple
+  durings on the active path race; each borrows disjoint `&mut` fields
+  of the context (Rust's split-borrow checker enforces this at compile
+  time).
+- **Termination** is just rules 6 + 4 with target = "outside the
+  chart": exit the entire active path inner-to-outer, then stop.
+  Pending events drop. In-flight durings drop at their next `.await`.
+
+That's the whole behavior model. The
+[full semantics doc](docs/002.%20hsmc-semantics-formal.md)
+spells out edge cases (queue overflow surfacing, same-tick timer ties,
+self-transitions on composites) but the rules above cover the
+overwhelming majority of charts.
+
+### What `hsmc` deliberately does NOT have
+
+The bet is on **simple, consistent semantics**. These features are
+omitted on purpose; for each, what to do instead:
+
+| Missing feature | Use instead |
+|---|---|
+| Guard conditions on transitions | Split source into two states, or have an action `emit()` a follow-up event for the chart to branch on |
+| Orthogonal / parallel regions | Two charts as two tasks connected by channels, or multiple `during:` activities in one state |
+| History states | Store last child explicitly in your context; transition to it on re-entry |
+| Deferred events | Handle where they arrive (drop/log if not relevant), or have producer check state |
+| Internal transitions | `action(Trig) => fn;` (no transition) — exactly that |
+| State-local context | All state in the root context; durings borrow disjoint fields |
+| Event priorities beyond FIFO | Higher-priority events on a separate channel into a separate, faster machine |
+| Runtime statechart modification | Design every variation up front as states |
 
 ## Quickstart
 
@@ -49,7 +191,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-hsmc = { version = "0.2", features = ["embassy"] }  # or ["tokio"]
+hsmc = { version = "0.3", features = ["embassy"] }  # or ["tokio"]
 ```
 
 Minimal timer-only machine:
@@ -310,14 +452,45 @@ async fn radio_task(lora: LoRaDriver, ch: &'static RadioChan) {
 Run `cargo run --example during_radio --features tokio` to see the
 `during:` pattern end-to-end.
 
+## Verification
+
+`hsmc` ships with a Creusot deductive-verification crate
+(`verification/`) that proves the runtime's `EventQueue` and
+`TimerTable` correct against Pearlite specs. Why3 + alt-ergo + z3
+discharge every VC mechanically. Run:
+
+```bash
+just verify
+```
+
+The recipe is self-installing (mise pulls in the pinned nightly,
+opam, Why3, the SMT solvers, and `cargo-creusot`) so a fresh clone
+gets to a green proof in one command. See
+[`verification/INVARIANTS.md`](verification/INVARIANTS.md) for the
+spec-rule → proof mapping.
+
+The `journal` Cargo feature gives you a deterministic execution
+trace of every action, transition, timer arm/cancel/fire, queued
+emit, event delivery, and termination. Same chart + same events =
+byte-identical journal. 113 byte-equal expected-vs-actual journal
+tests anchor every spec rule. `cargo mutants` runs cleanly with
+0 missed mutants under `--features tokio,journal`.
+
 ## Status
 
 - v0.1 spec: fully implemented.
-- v0.2 additions: `during:`, optional `events:`, `dispatch()`, `STATE_CHART`,
-  drain-on-send.
-- Out of scope: state-scoped context types (hierarchy), guard conditions,
-  orthogonal/parallel regions, history states, runtime statechart
-  modification, multi-threaded tokio.
+- v0.2: `during:`, optional `events:`, `dispatch()`, `STATE_CHART`,
+  drain-on-send. Up-transitions no longer exit/re-enter the target.
+- v0.3: `journal` feature + deterministic trace + replay; root
+  state targetable by chart name; Creusot verification of the
+  runtime data structures; 113-test deterministic-flow suite.
+- Out of scope (deliberate): guard conditions, orthogonal/parallel
+  regions, history states, deferred events, internal transitions,
+  state-local context, event priorities beyond FIFO, runtime
+  statechart modification, multi-threaded tokio. See
+  [`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md)
+  § "What `hsmc` deliberately does NOT have" for the rationale and
+  what to use instead.
 
 ## License
 
