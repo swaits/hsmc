@@ -329,13 +329,15 @@ fn compute_terminate_paths(states: &[StateIr]) -> (Vec<u16>, Vec<(u16, u16)>) {
 fn compute_event_dispatch(ir: &Ir) -> Vec<(u16, Vec<u16>, Option<u16>)> {
     use std::collections::BTreeMap;
 
+    /// `event_id → (action_ids, transition_target)` aggregation for one state.
+    type StateHandlers = BTreeMap<u16, (Vec<u16>, Option<u16>)>;
+
     let n_states = ir.states.len();
     let n_events = ir.event_variants.len();
 
     // Per-state, per-event handler resolution. Mirrors the aggregation in
     // `state_handler_arms` (sort by decl_index, group by trigger).
-    let mut per_state: Vec<BTreeMap<u16, (Vec<u16>, Option<u16>)>> =
-        vec![BTreeMap::new(); n_states];
+    let mut per_state: Vec<StateHandlers> = vec![StateHandlers::new(); n_states];
     for (sid, state) in ir.states.iter().enumerate() {
         let mut handlers = state.handlers.iter().collect::<Vec<_>>();
         handlers.sort_by_key(|h| h.decl_index);

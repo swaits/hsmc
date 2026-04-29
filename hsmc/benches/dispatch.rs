@@ -16,22 +16,30 @@
 //! Each bench's setup function primes the chart to a known state outside the
 //! measured region. The body sends one event and runs `step()` once.
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy")))))]
 fn main() {
-    eprintln!("hsmc dispatch benches require Linux (iai-callgrind + valgrind).");
+    // The benches use sync action impls; under `--features tokio` /
+    // `--features embassy` the codegen emits async fns and the impls
+    // would need an `async` keyword. Rather than maintain two parallel
+    // bench files, we gate the whole suite to the default-features /
+    // Linux configuration, which is what we measure latency in anyway.
+    eprintln!(
+        "hsmc dispatch benches require Linux + default features \
+         (iai-callgrind + valgrind, sync action impls)."
+    );
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 use hsmc::{statechart, Duration};
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 use iai_callgrind::{library_benchmark, library_benchmark_group, main};
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 use std::hint::black_box;
 
 // ──────────────────────────────────────────────────────────────────────
 // Chart 1: H=2 sibling. LCA(A, B) = P. Two states deep.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod h2 {
     use super::*;
 
@@ -66,7 +74,7 @@ mod h2 {
 // Chart 2: H=4 cross-tree. LCA(L3, R3) = root. Stresses LCA over 8 ancestors.
 // Also has up- and self-transition events for additional benches.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod h4 {
     use super::*;
 
@@ -116,7 +124,7 @@ mod h4 {
 // Chart 3: H=8 cross-tree. LCA(L7, R7) = root. Worst-case for the
 // pre-fix O(H²) LCA — old code does ~64 compares; new code does ~16.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod h8 {
     use super::*;
 
@@ -172,7 +180,7 @@ mod h8 {
 // Chart 4: emit-chain. S0 →(Go)→ S1 →(emits Next)→ S2 →(emits Next)→ S3 →(emits Next)→ S4.
 // One Send + one Step ⇒ chart drains 4 events through 3 self-emits.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod chain {
     use super::*;
 
@@ -220,7 +228,7 @@ mod chain {
 // dispatch shape; the only thing that varies between benches is the
 // bubble distance to the handler.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod bubble {
     use super::*;
 
@@ -274,7 +282,7 @@ mod bubble {
 // suite declares no `Duration` triggers and (post timer-elide pass) has
 // the timer-table machinery removed at codegen.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod timer_fire {
     use super::*;
 
@@ -305,7 +313,7 @@ mod timer_fire {
 // Only bench that exercises `__check_terminate`'s true arm and the
 // terminate-on-event path.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod term {
     use super::*;
 
@@ -347,7 +355,7 @@ mod term {
 // realistic worst case for HSM dispatch — a parent's "back to default"
 // handler that descends deep on the other side.
 // ──────────────────────────────────────────────────────────────────────
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 mod bubble_cross {
     use super::*;
 
@@ -406,61 +414,61 @@ mod bubble_cross {
 // the bench fn body.
 // ──────────────────────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_h2_warm() -> h2::H2<8> {
-    let mut m = h2::H2::new(h2::Ctx::default());
+    let mut m = h2::H2::new(h2::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → enters P → A
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_h2_cold() -> h2::H2<8> {
-    h2::H2::new(h2::Ctx::default())
+    h2::H2::new(h2::Ctx)
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_h4_warm() -> h4::H4<8> {
-    let mut m = h4::H4::new(h4::Ctx::default());
+    let mut m = h4::H4::new(h4::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → L1 → L2 → L3
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_h8_warm() -> h8::H8<8> {
-    let mut m = h8::H8::new(h8::Ctx::default());
+    let mut m = h8::H8::new(h8::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → L1..L7
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_chain_warm() -> chain::Chain<8> {
-    let mut m = chain::Chain::new(chain::Ctx::default());
+    let mut m = chain::Chain::new(chain::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → S0
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_bubble_warm() -> bubble::Bubble<8> {
     let mut m = bubble::Bubble::new(bubble::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → Outer → L1 → L2 → L3 → L4
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_timer_fire_armed() -> timer_fire::TimerFire<8> {
     let mut m = timer_fire::TimerFire::new(timer_fire::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → enters Armed, arms 1ns timer
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_term_warm() -> term::Term<8> {
     let mut m = term::Term::new(term::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → L1 → L2 → L3
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 fn setup_bubble_cross_warm() -> bubble_cross::BubbleCross<8> {
     let mut m = bubble_cross::BubbleCross::new(bubble_cross::Ctx);
     let _ = m.step(Duration::ZERO); // priming step → L1 → L2 → L3 → L4 → L5
@@ -472,7 +480,7 @@ fn setup_bubble_cross_warm() -> bubble_cross::BubbleCross<8> {
 // chart by value, sends one event, and runs one step.
 // ──────────────────────────────────────────────────────────────────────
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::cold(setup = setup_h2_cold)]
 fn h2_cold_start(mut m: h2::H2<8>) -> h2::H2<8> {
@@ -481,7 +489,7 @@ fn h2_cold_start(mut m: h2::H2<8>) -> h2::H2<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::warm(setup = setup_h2_warm)]
 fn h2_warm_lateral(mut m: h2::H2<8>) -> h2::H2<8> {
@@ -490,7 +498,7 @@ fn h2_warm_lateral(mut m: h2::H2<8>) -> h2::H2<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::cross(setup = setup_h4_warm)]
 fn h4_cross_tree(mut m: h4::H4<8>) -> h4::H4<8> {
@@ -499,7 +507,7 @@ fn h4_cross_tree(mut m: h4::H4<8>) -> h4::H4<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::up(setup = setup_h4_warm)]
 fn h4_up(mut m: h4::H4<8>) -> h4::H4<8> {
@@ -508,7 +516,7 @@ fn h4_up(mut m: h4::H4<8>) -> h4::H4<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::self_(setup = setup_h4_warm)]
 fn h4_self(mut m: h4::H4<8>) -> h4::H4<8> {
@@ -517,7 +525,7 @@ fn h4_self(mut m: h4::H4<8>) -> h4::H4<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::cross(setup = setup_h8_warm)]
 fn h8_cross_tree(mut m: h8::H8<8>) -> h8::H8<8> {
@@ -526,7 +534,7 @@ fn h8_cross_tree(mut m: h8::H8<8>) -> h8::H8<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::leaf(setup = setup_bubble_warm)]
 fn bubble_leaf(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
@@ -536,7 +544,7 @@ fn bubble_leaf(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::mid(setup = setup_bubble_warm)]
 fn bubble_mid(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
@@ -546,7 +554,7 @@ fn bubble_mid(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::top(setup = setup_bubble_warm)]
 fn bubble_top(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
@@ -556,7 +564,7 @@ fn bubble_top(mut m: bubble::Bubble<8>) -> bubble::Bubble<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::fire(setup = setup_timer_fire_armed)]
 fn timer_fire_dispatch(mut m: timer_fire::TimerFire<8>) -> timer_fire::TimerFire<8> {
@@ -566,7 +574,7 @@ fn timer_fire_dispatch(mut m: timer_fire::TimerFire<8>) -> timer_fire::TimerFire
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::quit(setup = setup_term_warm)]
 fn terminate_event(mut m: term::Term<8>) -> term::Term<8> {
@@ -577,7 +585,7 @@ fn terminate_event(mut m: term::Term<8>) -> term::Term<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::switch(setup = setup_bubble_cross_warm)]
 fn bubble_cross_tree(mut m: bubble_cross::BubbleCross<8>) -> bubble_cross::BubbleCross<8> {
@@ -589,7 +597,7 @@ fn bubble_cross_tree(mut m: bubble_cross::BubbleCross<8>) -> bubble_cross::Bubbl
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 #[library_benchmark]
 #[bench::chain(setup = setup_chain_warm)]
 fn chain_self_emit(mut m: chain::Chain<8>) -> chain::Chain<8> {
@@ -602,7 +610,7 @@ fn chain_self_emit(mut m: chain::Chain<8>) -> chain::Chain<8> {
     m
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 library_benchmark_group!(
     name = dispatch;
     benchmarks =
@@ -621,5 +629,5 @@ library_benchmark_group!(
         chain_self_emit,
 );
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 main!(library_benchmark_groups = dispatch);
