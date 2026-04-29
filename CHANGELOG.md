@@ -4,6 +4,56 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.5.1 — 2026-04-29
+
+Docs and licensing cleanup. No code or behavior changes.
+
+- **License simplified to MIT.** The crate was previously dual-licensed
+  MIT OR Apache-2.0; it is now MIT-only. `LICENSE-APACHE` removed,
+  `LICENSE-MIT` renamed to `LICENSE`, workspace `license` field is
+  now `"MIT"`. Copyright (c) 2026 Stephen Waits &lt;steve@waits.net&gt;.
+- **README rewritten reader-first.** Restructured top-to-bottom so a
+  reader who's never used statecharts can follow the document linearly:
+  a working Blinker chart is now the first concrete artifact; the
+  Quickstart sits directly under it; the larger Radio example
+  (events / payloads / `during:`) follows; the formal eight-rule
+  semantics live below all of that as reference rather than as a
+  prerequisite. The "What it does" feature list is rewritten in
+  user-benefit-first language. The "What `hsmc` deliberately does NOT
+  have" table is promoted from a sub-section to its own top-level
+  section. No semantic changes — the formal rules' content is
+  untouched, only repositioned.
+- **Tokio integration story corrected.** The README previously implied
+  driving a chart under tokio required `tokio::task::LocalSet`. The
+  normal path is `#[tokio::main(flavor = "current_thread")]` — one
+  line, no extra wrapping, and how the existing examples have always
+  worked. `LocalSet` no longer appears in the README at all.
+- **`microwave_tui` example dropped.** The ratatui/crossterm TUI
+  variant of the microwave was overkill for a library example and
+  pulled in three dev-dependencies (`ratatui`, `crossterm`, `futures`)
+  that nothing else used. The `microwave` example covers the same
+  feature surface in plain Rust.
+- **Observability framed honestly.** Enabling `defmt` / `log` /
+  `tracing` output for a chart is one `trace-*` Cargo feature on
+  hsmc's side, plus whatever your downstream crate already does to
+  init its logger (e.g. `tracing_subscriber::fmt::init()` or
+  `env_logger::init()`) — hsmc deliberately doesn't init a logger,
+  per the standard Rust library convention. The Observability
+  section now says so directly and includes a runnable end-to-end
+  snippet using `tracing-subscriber`. The `trace-*` features are
+  also listed in the main feature-flags table so they're
+  discoverable at a glance.
+- **Inline examples corrected.** The Quickstart Blinker now has both
+  `light_on` and `light_off` actions (it previously had only
+  `light_on`, which left the LED on the whole time). The Embassy
+  snippet no longer declares an unused event channel for what is a
+  timer-only chart.
+- **Eight-rule order finalized.** The "How a chart behaves" rules are
+  now strictly bottom-up: active path → transitions (LCA-aware) →
+  up-transition rule → entry/exit ordering → `default(...)` (a
+  transition fired on entry) → event bubbling → timers →
+  emit/during/termination. Cross-references updated.
+
 ## 0.5.0 — 2026-04-28
 
 ### `default(...)` is a real LCA-aware transition

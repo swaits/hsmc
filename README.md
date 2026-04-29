@@ -1,10 +1,98 @@
 # hsmc — Hierarchical State Machines for Rust
 
-`hsmc` is a declarative, proc-macro-based statechart crate for Rust. It targets
-embedded Rust (embassy) as the primary runtime and supports `tokio` via
-`LocalSet`. Machines are compiled from a `statechart!` block into
-monomorphized code with no dynamic dispatch, no interior mutability, and no
-heap allocations by default.
+`hsmc` lets you write the control logic of a device — a microwave, a
+LoRa radio, a sensor, a UI flow — as a **statechart**: nested states
+with entry/exit actions, transitions, timers, and async work, all
+declared in one block. The proc macro turns it into Rust code with no
+heap allocations, no dynamic dispatch, and no interior mutability.
+
+It targets embedded Rust on `embassy` first, with full tokio support
+on the side. Same chart, both runtimes.
+
+## A first chart — a blinker
+
+```rust
+use hsmc::{statechart, Duration};
+
+pub struct Ctx {
+    pub on:     bool,    // mirrors the LED's current state
+    pub blinks: u32,     // count of times we've turned it on
+}
+
+statechart! {
+    Blinker {
+        context: Ctx;
+        default(Off);    // start with the LED off
+
+        state Off {
+            entry: light_off;
+            on(after Duration::from_millis(500)) => On;
+        }
+        state On {
+            entry: light_on;
+            on(after Duration::from_millis(500)) => Off;
+        }
+    }
+}
+
+impl BlinkerActions for BlinkerActionContext<'_> {
+    async fn light_off(&mut self) { self.on = false; }
+    async fn light_on(&mut self)  { self.on = true; self.blinks += 1; }
+}
+```
+
+Two states, two timer-driven transitions, two entry actions. The
+runtime arms each state's timer when you enter it and cancels it
+when you leave; `default(Off)` picks the initial state. Land in
+`Off`, fire `light_off`, arm the 500 ms timer; when it elapses,
+transition to `On`, fire `light_on`, arm the next 500 ms timer.
+Repeat.
+
+That's `hsmc` at its smallest: states, timers, and one entry action
+per state. No event channel, no async I/O, no hierarchy yet.
+
+## Quickstart
+
+Add to `Cargo.toml`:
+
+```toml
+[dependencies]
+hsmc = { version = "0.5", features = ["embassy"] }   # firmware
+# or
+hsmc = { version = "0.5", features = ["tokio"] }     # desktop / tests
+```
+
+Run the Blinker under tokio:
+
+```rust
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    let mut m = Blinker::new(Ctx { on: false, blinks: 0 });
+    let _ = m.run().await;
+}
+```
+
+That's the whole driver. A chart runs on a single task — `flavor =
+"current_thread"` keeps tokio out of the multi-threaded scheduler so
+you don't have to think about `Send` bounds on your context, your
+events, or your `during:` futures. Normal Rust, no extra wrapping.
+
+Run it under embassy:
+
+```rust
+#[embassy_executor::task]
+async fn blink_task() {
+    let mut m = Blinker::new(Ctx { on: false, blinks: 0 });
+    let _ = m.run().await;
+}
+```
+
+## A bigger chart — events, payloads, async I/O
+
+The Blinker doesn't talk to anything outside itself. A real device
+does. Here's a radio that receives commands from somewhere
+(button press, RPC call, ISR), continuously listens for packets while
+in the `Receiving` state, and stops when told:
 
 ```rust
 statechart! {
@@ -25,41 +113,73 @@ statechart! {
 }
 ```
 
-## What it does
+Three things here that the Blinker didn't have:
 
-- **Harel-style hierarchical states.** Nested states with `entry:`/`exit:`
-  actions, LCA-aware transitions, optional `default(...)` (a transition
-  that may target any state — descend, redirect to a sibling, bounce
-  to an ancestor — with a compile-time cycle check), `terminate`.
-- **Event-driven transitions and actions.** Typed payload bindings:
-  `on(PacketRx { rssi: i16 }) => handler;`.
-- **Timer triggers.** `on(after Duration::from_secs(5)) => Next;` and
-  `on(every Duration::from_millis(100)) => tick;`.
-- **`during:` activities.** Async functions that run while a state is
-  active and produce events. Multiple durings can borrow disjoint fields
-  of the context concurrently via Rust's native split borrow — no
-  `RefCell`, no `Mutex`, no `UnsafeCell` in user code.
-- **`m.run().await` is the whole task body.** Races active durings, the
-  external event channel, and timer deadlines. The MCU sleeps between
-  events (embassy's cooperative executor parks all futures).
-- **Unified observability.** One observation per atom of execution
-  fans out at compile time to a journal (`Vec<TraceEvent>`) and/or
-  textual trace backends (`defmt`, `log`, `tracing`) — they share a
-  single vocabulary, so they cannot diverge. With no sink feature on,
-  every site expands to `()` (zero overhead). See
-  [Observability](#observability--one-journal-multiple-outputs).
-- **Deterministic + mechanically verified.** The `journal` feature
-  records every action, transition, timer, and event in order — same
-  inputs, byte-identical journal. The runtime queue and timer table
-  carry Pearlite specs that Creusot + Why3 + alt-ergo + z3 discharge
-  mechanically (`just verify`). The integration suite pins every
-  spec rule with byte-equal expected-vs-actual journals, trace-format
-  regression checks, and per-feature behavior tests.
+- **Events.** `events: Ev;` declares the input enum. External code
+  drives the chart with `m.sender().send(Ev::StartRx)`; in-chart
+  actions can `emit(Ev::Whatever)` to queue a follow-up. Handlers
+  pattern-match the variant and bind its payload directly:
+  `on(PacketRx { rssi, snr }) => record_packet;` makes `rssi` and
+  `snr` available to the action.
+- **`during:` activities.** `next_packet(lora, rx_buf)` is an async
+  fn that runs while `Receiving` is active and is dropped when the
+  state exits. It gets `&mut` borrows of just the `lora` and
+  `rx_buf` fields of the context — Rust's split-borrow rules let
+  several `during:`s on the active path run concurrently without a
+  `RefCell` or `Mutex` in sight.
+- **The runtime races them all.** `m.run()` simultaneously polls the
+  `during:`, listens on the event channel, and waits for the next
+  timer deadline; whichever fires first drives the next transition.
+  The MCU sleeps in between.
 
-## How a chart behaves — the building blocks
+For nested-state hierarchies, `emit(...)`, `terminate`, and
+`on(every D)`, see the [microwave example](hsmc/examples/microwave.rs).
 
-Eight rules, each building on the previous. Internalize these and every
-edge case below falls out — you don't have to memorize anything else.
+## What you get
+
+- **Nested states with proper transitions.** Exit a deeply nested
+  state and every enclosing state's exits run in the right order, no
+  manual bookkeeping. A transition is just `=> Target;` and the
+  runtime walks the tree (LCA dispatch). Includes `entry:`/`exit:`
+  actions, optional `default(...)` initial transitions, and
+  `terminate`.
+- **Events with typed payloads.** Pattern-match a variant and bind
+  its fields right in the chart: `on(PacketRx { rssi: i16 }) =>
+  record_packet;`. The compiler type-checks the binding against your
+  event enum.
+- **Timers as first-class triggers.** `on(after 5s) => Next;` for a
+  one-shot, `on(every 100ms) => tick;` for periodic. Armed when the
+  declaring state is entered, cancelled when it's exited — no
+  `select!` plumbing in your code.
+- **Async work scoped to a state's lifetime.** A `during:` is an
+  async fn that runs while a state is active and is dropped when you
+  leave. Multiple durings on the active path race concurrently and
+  split-borrow disjoint context fields — no `RefCell`, no `Mutex`,
+  no `unsafe`.
+- **`m.run().await` is the whole task.** It races durings, the event
+  channel, and timer deadlines, and parks the executor between them.
+  No manual loop, no busy-waits, no `Send` headaches under
+  `current_thread` tokio or embassy.
+- **Observability that's one feature flag away.** Add
+  `features = ["trace-log"]` (or `trace-defmt` / `trace-tracing`) and
+  every action, transition, timer, and event becomes a log line in
+  whichever framework your crate already uses — `defmt` for firmware,
+  `log` for desktop, `tracing` for structured spans. With no sink
+  feature, the observation calls compile to nothing.
+- **Deterministic + machine-checked.** The `journal` feature records
+  every action, transition, timer, and event in order; identical
+  input produces a byte-identical journal. The runtime's event
+  queue and timer table are formally verified — Creusot + Why3 +
+  alt-ergo + z3 discharge the proofs (`just verify`).
+- **No heap, no `unsafe`, no dynamic dispatch.** Pure monomorphized
+  code. `no_std` clean by default. Designed to fit on a Cortex-M0+
+  under embassy.
+
+## How a chart behaves — the rules
+
+Eight rules, each building on the previous. Internalize these and
+every edge case below falls out — you don't have to memorize anything
+else.
 
 The full canonical reference lives at
 [`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md);
@@ -73,20 +193,70 @@ you're **simultaneously** in `Root`, `A`, `B`, and `C`. The root is
 always active until termination.
 
 The innermost active state is usually a leaf, but it can also be a
-composite that has children but no `default(...)` — see rule 2.
+composite that has children but no `default(...)` — see rule 5.
 
 This is the most important rule. Every rule below is downstream of it.
 If a behavior somewhere else seems weird, come back here — it's
 probably the resolution.
 
-### 2. `default(...)` — a transition that fires immediately on entry
+### 2. Transitions — exit to LCA, enter to target
+
+A transition moves the active path from the current innermost state to
+some target state. The algorithm is uniform regardless of what
+triggered it (event, timer, or default — see later rules):
+
+1. Find the LCA (lowest common ancestor) of current and target.
+2. Walk **up** from current, exiting each state, until you hit the LCA.
+   The LCA itself is **not** exited.
+3. Walk **down** from the LCA to target, entering each state. The LCA
+   is **not** re-entered.
+
+The LCA always exists because root is always an upper bound. State
+names are globally unique across the chart, so a transition can target
+**any** state — siblings, cousins, ancestors, the root itself
+(`on(Trig) => MyChart;`).
+
+### 3. The up-transition rule — never re-enter what you never left
+
+If your transition target is **already on the active path** (i.e., it's
+an ancestor of the innermost state), then step 3 of the transition
+algorithm does nothing. You exit the states strictly between current
+and target; the target itself is **not** re-entered.
+
+So from leaf `C` inside `B` inside `A`, an `on(Up) => A;` exits `C`
+then `B`. `A`'s entry actions don't fire. `A`'s timers don't restart.
+`A`'s durings keep running.
+
+You cannot enter a state you never left.
+
+### 4. Entry / exit ordering
+
+Direction is set by the path:
+
+- **Entries** fire **outer-to-inner**: when entering down through a
+  path, the outermost state's entries fire first, then the next, then
+  the innermost's. Within a single state, entry actions fire in
+  declaration order. After a state's entries finish, its `during:`
+  activities start.
+- **Exits** fire **inner-to-outer**: innermost first, then parent, then
+  grandparent. Within a single state, exit actions fire in declaration
+  order. Before a state's exits begin, its `during:` activities are
+  cancelled.
+
+So a full transition reads: cancel durings on the way out → run exits
+on the way out → run entries on the way in → start durings on the way
+in.
+
+### 5. `default(...)` — a transition that fires immediately on entry
 
 Any state **may** declare one `default(...)`. It's a transition — same
-LCA-aware algorithm as any event-triggered transition (rule 4) — that
-fires **immediately** after the declaring state's entry actions finish
-(and its durings start). The target may be **any** state in the chart:
-a child, a sibling, an ancestor, anywhere. The compiler rejects cycles
-in the default graph, so the chain is always finite.
+LCA-aware algorithm as rule 2 — that fires **immediately** after the
+declaring state's entry actions finish (and its durings start). The
+target may be **any** state in the chart: a child, a sibling, an
+ancestor, anywhere. Defaults chain: if the resulting target also has
+a `default(...)`, it fires too, and so on until a state with no
+default is reached. The compiler rejects cycles in the default graph,
+so the chain is always finite.
 
 The classic case is a composite descending to a leaf:
 ```
@@ -109,12 +279,17 @@ the state itself is the resting innermost active state until something
 explicitly transitions away. This is the "microwave" pattern: a
 `Standby` state with sub-modes that the chart enters only on demand.
 
-### 3. Event bubbling — innermost first, first handler wins
+A consequence of rule 3 (up-transitions): an ancestor's `default(...)`
+only fires when that ancestor is freshly entered. Transitioning *up*
+to an ancestor does not re-enter it, so its default does not re-fire.
+
+### 6. Event bubbling — innermost first, first handler wins
 
 An event arrives. Search starts at the **innermost** active state. If
-that state has a handler, it runs and the event is consumed. If not,
-walk up to the parent and check there. Repeat. If you reach the root
-with no handler, the event is silently discarded.
+that state has a handler, it runs and the event is consumed (the
+handler may execute a transition per rule 2). If not, walk up to the
+parent and check there. Repeat. If you reach the root with no handler,
+the event is silently discarded.
 
 Three corollaries:
 
@@ -123,58 +298,6 @@ Three corollaries:
   declaration order; the transition (if any) fires last.
 - **Timers don't bubble.** A timer belongs to the state that declared
   it; it fires only in that state's scope.
-
-### 4. Transitions — exit to LCA, enter to target
-
-Any transition's algorithm is uniform:
-
-1. Find the LCA (lowest common ancestor) of current and target.
-2. Walk **up** from current, exiting each state, until you hit the LCA.
-   The LCA itself is **not** exited.
-3. Walk **down** from the LCA to target, entering each state. The LCA
-   is **not** re-entered.
-4. If the target declares a `default(...)`, fire it (rule 2). Defaults
-   chain — each link is itself a full transition — until you reach a
-   state with no default. The compiler rejects cycles.
-
-The LCA always exists because root is always an upper bound. State
-names are globally unique across the chart, so a transition can target
-**any** state — siblings, cousins, ancestors, the root itself
-(`on(Trig) => MyChart;`).
-
-### 5. The up-transition rule — never re-enter what you never left
-
-If your transition target is **already on the active path** (i.e., it's
-an ancestor of the innermost state), then steps 3 and 4 of the
-transition algorithm do nothing. You exit the states strictly between
-current and target; the target itself is **not** re-entered.
-
-So from leaf `C` inside `B` inside `A`, an `on(Up) => A;` exits `C`
-then `B`. `A`'s entry actions don't fire. `A`'s `default` does not
-fire (it only fires when `A` is freshly entered, which it wasn't).
-`A`'s timers don't restart. `A`'s durings keep running.
-
-You cannot enter a state you never left.
-
-### 6. Entry / exit ordering
-
-Direction is set by the path:
-
-- **Entries** fire **outer-to-inner**: when entering down through a
-  path, the outermost state's entries fire first, then the next, then
-  the innermost's. Within a single state, entry actions fire in
-  declaration order. After a state's entries finish, its `during:`
-  activities start. Then, if the state declared a `default(...)`,
-  it fires as a transition (rule 2) — chains continue until a state
-  with no default.
-- **Exits** fire **inner-to-outer**: innermost first, then parent, then
-  grandparent. Within a single state, exit actions fire in declaration
-  order. Before a state's exits begin, its `during:` activities are
-  cancelled.
-
-So a full transition reads: cancel durings on the way out → run exits
-on the way out → run entries on the way in → start durings on the way
-in.
 
 ### 7. Timers — armed by state lifecycle
 
@@ -196,7 +319,7 @@ restarts its timers from zero.
   durings on the active path race; each borrows disjoint `&mut` fields
   of the context (Rust's split-borrow checker enforces this at compile
   time).
-- **Termination** is just rules 6 + 4 with target = "outside the
+- **Termination** is just rules 2 + 4 with target = "outside the
   chart": exit the entire active path inner-to-outer, then stop.
   Pending events drop. In-flight durings drop at their next `.await`.
 
@@ -205,78 +328,6 @@ That's the whole behavior model. The
 spells out edge cases (queue overflow surfacing, same-tick timer ties,
 self-transitions on composites) but the rules above cover the
 overwhelming majority of charts.
-
-### What `hsmc` deliberately does NOT have
-
-The bet is on **simple, consistent semantics**. These features are
-omitted on purpose; for each, what to do instead:
-
-| Missing feature                 | Use instead                                                                                           |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Guard conditions on transitions | Split source into two states, or have an action `emit()` a follow-up event for the chart to branch on |
-| Orthogonal / parallel regions   | Two charts as two tasks connected by channels, or multiple `during:` activities in one state          |
-| History states                  | Store last child explicitly in your context; transition to it on re-entry                             |
-| Deferred events                 | Handle where they arrive (drop/log if not relevant), or have producer check state                     |
-| Internal transitions            | `action(Trig) => fn;` (no transition) — exactly that                                                  |
-| State-local context             | All state in the root context; durings borrow disjoint fields                                         |
-| Event priorities beyond FIFO    | Higher-priority events on a separate channel into a separate, faster machine                          |
-| Runtime statechart modification | Design every variation up front as states                                                             |
-
-## Quickstart
-
-Add to `Cargo.toml`:
-
-```toml
-[dependencies]
-hsmc = { version = "0.5", features = ["embassy"] }  # or ["tokio"]
-```
-
-Minimal timer-only machine:
-
-```rust
-use hsmc::{statechart, Duration};
-
-pub struct Ctx { pub ticks: u32 }
-
-statechart! {
-    Blinker {
-        context: Ctx;
-        default(On);
-
-        state On {
-            entry:  light_on;
-            on(after Duration::from_millis(500)) => Off;
-        }
-        state Off {
-            on(after Duration::from_millis(500)) => On;
-        }
-    }
-}
-
-impl BlinkerActions for BlinkerActionContext<'_> {
-    async fn light_on(&mut self) { self.ticks += 1; }
-}
-```
-
-Drive it under tokio:
-
-```rust
-let mut m = Blinker::new(Ctx { ticks: 0 });
-tokio::task::LocalSet::new().run_until(m.run()).await.unwrap();
-```
-
-Or under embassy:
-
-```rust
-static CHANNEL: Channel<CriticalSectionRawMutex, __NoEvents, 8> = Channel::new();
-// (timer-only machines don't need a channel; omit `events:` and use `Blinker::new(ctx)`.)
-
-#[embassy_executor::task]
-async fn blink_task() {
-    let mut m = Blinker::new(Ctx { ticks: 0 });
-    let _ = m.run().await;
-}
-```
 
 ## `during:` — async activities scoped to a state
 
@@ -394,59 +445,59 @@ For `statechart! Foo { ... }` the macro emits:
 
 ## Feature flags
 
-| Feature   | Effect                                                                     |
-| --------- | -------------------------------------------------------------------------- |
-| (default) | `no_std`, no async runtime. Drive via `step(Duration)` + `send(ev)`.       |
-| `tokio`   | Async actions + `run()`. Targets single-thread via `LocalSet`.             |
-| `embassy` | Async actions + `run()`. Targets embassy's cooperative executor. `no_std`. |
+| Feature         | Effect                                                                     |
+| --------------- | -------------------------------------------------------------------------- |
+| (default)       | `no_std`, no async runtime. Drive via `step(Duration)` + `send(ev)`.       |
+| `tokio`         | Async actions + `run()`. Single-thread (`flavor = "current_thread"`).      |
+| `embassy`       | Async actions + `run()`. Embassy's cooperative executor. `no_std`.         |
+| `journal`       | In-memory `Vec<TraceEvent>` of every observation (replay, byte-deterministic). |
+| `trace-defmt`   | Auto-emit `defmt::*` log lines for every observation.                      |
+| `trace-log`     | Auto-emit `log::*` log lines for every observation.                        |
+| `trace-tracing` | Auto-emit `tracing::*` events with structured fields.                      |
 
 `embassy` and `tokio` are mutually exclusive — enabling both is a compile
-error.
-
-## Examples
-
-| Example         | Purpose                                                               |
-| --------------- | --------------------------------------------------------------------- |
-| `microwave`     | Full-feature pure-event machine: entry/exit, timers, emit, terminate. |
-| `microwave_tui` | TUI variant of microwave.                                             |
-| `during_radio`  | `during:` activities simulating a radio task with RX + TX loops.      |
-| `embassy_full`  | Embassy feature demonstration.                                        |
-
-Run `cargo run --example during_radio --features tokio` to see the
-`during:` pattern end-to-end.
-
-## Verification
-
-`hsmc` ships with a Creusot deductive-verification crate
-(`verification/`) that proves the runtime's `EventQueue` and
-`TimerTable` correct against Pearlite specs. Why3 + alt-ergo + z3
-discharge every VC mechanically. Run:
-
-```bash
-just verify
-```
-
-The recipe is self-installing (mise pulls in the pinned nightly,
-opam, Why3, the SMT solvers, and `cargo-creusot`) so a fresh clone
-gets to a green proof in one command. See
-[`verification/INVARIANTS.md`](verification/INVARIANTS.md) for the
-spec-rule → proof mapping.
-
-Beyond Creusot, the suite includes:
-
-- **Integration tests** — full chart behavior and per-feature
-  determinism, with byte-equal expected-vs-actual journals on the
-  `det_*` deterministic-flow tests, plus trace-format regression
-  tests pinning every observation verb's textual rendering. Run
-  with `cargo test --workspace --features tokio,journal`.
-- **`cargo mutants`** — full coverage under `cargo mutants --features
-  tokio,journal,trace-log`.
-- **Miri** — clean, no UB on the runtime crates.
+error. The `trace-*` and `journal` features are independently composable
+with each other and with the runtime feature; with no sink feature on,
+the trace points compile to nothing (zero overhead).
 
 ## Observability — one journal, multiple outputs
 
-Every chart emits a single observation per atom of execution. That
-observation fans out to whichever sinks you compile in:
+On hsmc's side, turning on observability is a single Cargo feature.
+On your side, it's whatever you'd already do to wire `defmt` / `log`
+/ `tracing` to an output — hsmc does not initialize a logger
+(libraries shouldn't; `main` owns that decision).
+
+If your firmware crate already uses `defmt`, add the feature and
+you're done — chart events interleave with the rest of your defmt
+output:
+
+```toml
+hsmc = { version = "0.5", features = ["embassy", "trace-defmt"] }
+```
+
+For a desktop crate, pick `log` or `tracing` and do that framework's
+normal one-line init in `main`:
+
+```toml
+[dependencies]
+hsmc               = { version = "0.5", features = ["tokio", "trace-tracing"] }
+tracing-subscriber = "0.3"
+```
+
+```rust
+#[tokio::main(flavor = "current_thread")]
+async fn main() {
+    tracing_subscriber::fmt::init();
+    let mut m = Blinker::new(Ctx { on: false, blinks: 0 });
+    let _ = m.run().await;
+}
+```
+
+Swap `trace-tracing` for `trace-log` and `tracing_subscriber::fmt::init()`
+for `env_logger::init()` if you prefer the `log` ecosystem; the rest is
+identical. With no sink feature enabled at all, the observation calls
+compile to `()` — the runtime is byte-identical to a chart with no
+instrumentation.
 
 | Feature         | Sink                                                     |
 | --------------- | -------------------------------------------------------- |
@@ -455,10 +506,9 @@ observation fans out to whichever sinks you compile in:
 | `trace-log`     | `log::*` log lines                                       |
 | `trace-tracing` | `tracing::*` events with structured fields               |
 
-With **no** sink feature on, observation is fully elided at compile
-time — zero overhead. Multiple sinks can be enabled simultaneously;
-the journal IS the observation stream and trace backends are textual
-renderings of it, so they cannot diverge.
+Multiple sinks can be enabled simultaneously; the journal IS the
+observation stream and trace backends are textual renderings of it,
+so they cannot diverge.
 
 The textual format is logfmt-style — greppable and regex-parseable:
 
@@ -509,19 +559,70 @@ transition: an event (`event:VariantName`), a timer
 (`timer:State/timer-id`), or `internal`. Real-life captures can be
 diffed against expected behavior the same way the journal can.
 
+## Examples
+
+| Example         | Purpose                                                               |
+| --------------- | --------------------------------------------------------------------- |
+| `microwave`    | Full-feature pure-event machine: entry/exit, timers, emit, terminate. |
+| `during_radio` | `during:` activities simulating a radio task with RX + TX loops.      |
+| `embassy_full` | Embassy feature demonstration.                                        |
+
+Run `cargo run --example during_radio --features tokio` to see the
+`during:` pattern end-to-end.
+
+## Verification
+
+`hsmc` ships with a Creusot deductive-verification crate
+(`verification/`) that proves the runtime's `EventQueue` and
+`TimerTable` correct against Pearlite specs. Why3 + alt-ergo + z3
+discharge every VC mechanically. Run:
+
+```bash
+just verify
+```
+
+The recipe is self-installing (mise pulls in the pinned nightly,
+opam, Why3, the SMT solvers, and `cargo-creusot`) so a fresh clone
+gets to a green proof in one command. See
+[`verification/INVARIANTS.md`](verification/INVARIANTS.md) for the
+spec-rule → proof mapping.
+
+Beyond Creusot, the suite includes:
+
+- **Integration tests** — full chart behavior and per-feature
+  determinism, with byte-equal expected-vs-actual journals on the
+  `det_*` deterministic-flow tests, plus trace-format regression
+  tests pinning every observation verb's textual rendering. Run
+  with `cargo test --workspace --features tokio,journal`.
+- **`cargo mutants`** — full coverage under `cargo mutants --features
+  tokio,journal,trace-log`.
+- **Miri** — clean, no UB on the runtime crates.
+
+## What `hsmc` deliberately does NOT have
+
+The bet is on **simple, consistent semantics**. These features are
+omitted on purpose; for each, what to do instead:
+
+| Missing feature                 | Use instead                                                                                           |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| Guard conditions on transitions | Split source into two states, or have an action `emit()` a follow-up event for the chart to branch on |
+| Orthogonal / parallel regions   | Two charts as two tasks connected by channels, or multiple `during:` activities in one state          |
+| History states                  | Store last child explicitly in your context; transition to it on re-entry                             |
+| Deferred events                 | Handle where they arrive (drop/log if not relevant), or have producer check state                     |
+| Internal transitions            | `action(Trig) => fn;` (no transition) — exactly that                                                  |
+| State-local context             | All state in the root context; durings borrow disjoint fields                                         |
+| Event priorities beyond FIFO    | Higher-priority events on a separate channel into a separate, faster machine                          |
+| Runtime statechart modification | Design every variation up front as states                                                             |
+| Multi-threaded tokio            | `flavor = "current_thread"` is the supported path — one task per chart                                |
+
+See [`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md)
+§ "What `hsmc` deliberately does NOT have" for the rationale on each.
+
 ## Status
 
 Pre-1.0. Per-release breaking changes are documented in
 [`CHANGELOG.md`](CHANGELOG.md).
 
-Out of scope (deliberate): guard conditions, orthogonal/parallel
-regions, history states, deferred events, internal transitions,
-state-local context, event priorities beyond FIFO, runtime
-statechart modification, multi-threaded tokio. See
-[`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md)
-§ "What `hsmc` deliberately does NOT have" for the rationale and
-what to use instead.
-
 ## License
 
-Dual-licensed MIT OR Apache-2.0.
+MIT. Copyright (c) 2026 Stephen Waits &lt;steve@waits.net&gt;. See [LICENSE](LICENSE).
