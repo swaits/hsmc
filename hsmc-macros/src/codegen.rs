@@ -100,21 +100,27 @@ type TransitionPathTables = (Vec<u16>, Vec<u16>, Vec<(u16, u16)>, Vec<(u16, u16)
 /// in `transition()` with two slice lookups and two straight slice iterations.
 ///
 /// The (from, to) lookup matches the runtime LCA call: `from` is the active
-/// leaf (`self.current`), `to` is the transition target. The same three
-/// transition shapes are encoded uniformly by what the precomputed paths
-/// contain:
+/// innermost state (`self.current`), `to` is the transition target. The
+/// same three transition shapes are encoded uniformly by what the
+/// precomputed paths contain:
 ///
 ///   - **Up-transition** (`to` is a strict ancestor of `from`): exit_path is
 ///     `from..to` (target excluded; `to` is already on the active path and
 ///     must not be re-entered). enter_path is empty — `transition()` sets
 ///     `self.current = Some(target)` after the loops.
 ///   - **Self-transition** (`from == to`): exit_path is `[to]`. enter_path
-///     is `[to, default_child(to), default_child(default_child(to)), ...]`
-///     — re-enter target plus descend defaults.
+///     is `[to]` — re-enter the target.
 ///   - **Lateral** (LCA is a proper ancestor of both): exit_path walks
 ///     `from` up to but not including LCA. enter_path walks
-///     LCA-side child of `to` down to `to`, then continues descending
-///     `__DEFAULT_CHILD` from `to`.
+///     LCA-side child of `to` down to `to`.
+///
+/// Default-descent is **not** folded into these paths. After `transition()`
+/// applies the precomputed exit/enter, it follows the default chain by
+/// firing further transitions in a loop (`follow_defaults`). This is
+/// because `default(...)` may target any state in the chart — sibling,
+/// ancestor, anywhere — so each step of the chain is itself a full
+/// LCA-aware transition, not a simple child descent. The compile-time
+/// default-graph cycle check guarantees the loop terminates.
 ///
 /// Storage: `__EXIT_DATA` and `__ENTER_DATA` are flat `[u16]` blobs;
 /// `__EXIT_RANGE[i*N + j]` / `__ENTER_RANGE[i*N + j]` give `(start, end)`
@@ -126,7 +132,6 @@ type TransitionPathTables = (Vec<u16>, Vec<u16>, Vec<(u16, u16)>, Vec<(u16, u16)
 fn compute_transition_paths(states: &[StateIr]) -> TransitionPathTables {
     let n = states.len();
     let parent = |s: u16| -> Option<u16> { states[s as usize].parent };
-    let default_child = |s: u16| -> Option<u16> { states[s as usize].default_child };
     let depth = |s: u16| -> i32 { states[s as usize].depth as i32 };
 
     let lca = |mut a: u16, mut b: u16| -> Option<u16> {
@@ -171,21 +176,15 @@ fn compute_transition_paths(states: &[StateIr]) -> TransitionPathTables {
             return (exit_path, Vec::new());
         }
 
-        // Self-transition: external semantics — exit and re-enter target,
-        // then descend defaults.
+        // Self-transition: external semantics — exit and re-enter target.
+        // Default-following (if any) happens in the runtime chain loop.
         if from == to {
-            let exit_path = vec![to];
-            let mut enter_path = vec![to];
-            let mut cur = default_child(to);
-            while let Some(c) = cur {
-                enter_path.push(c);
-                cur = default_child(c);
-            }
-            return (exit_path, enter_path);
+            return (vec![to], vec![to]);
         }
 
         // Lateral: exit `from` up to (not including) LCA; enter from
-        // LCA-child on `to`'s side down to `to`, then descend defaults.
+        // LCA-child on `to`'s side down to `to`. Default-following
+        // happens in the runtime chain loop.
         let lca_id = lca(from, to);
 
         let mut exit_path = Vec::new();
@@ -213,13 +212,7 @@ fn compute_transition_paths(states: &[StateIr]) -> TransitionPathTables {
                 None => break,
             }
         }
-        let mut enter_path: Vec<u16> = rev.into_iter().rev().collect();
-
-        let mut cur = default_child(to);
-        while let Some(c) = cur {
-            enter_path.push(c);
-            cur = default_child(c);
-        }
+        let enter_path: Vec<u16> = rev.into_iter().rev().collect();
 
         (exit_path, enter_path)
     };
@@ -260,8 +253,8 @@ fn compute_transition_paths(states: &[StateIr]) -> TransitionPathTables {
     (exit_data, enter_data, exit_range, enter_range)
 }
 
-/// Static precompute of `do_terminate()`'s exit walk: for each leaf state,
-/// the chain `[current, parent(current), ..., __Root]` (root inclusive,
+/// Static precompute of `do_terminate()`'s exit walk: for each state, the
+/// chain `[current, parent(current), ..., __Root]` (root inclusive,
 /// since `__Root` may carry root-level `entry:`/`exit:` actions declared
 /// at the chart top level — see the `det_initial` test for that pattern).
 ///
@@ -376,17 +369,21 @@ fn compute_event_dispatch(ir: &Ir) -> Vec<(u16, Vec<u16>, Option<u16>)> {
     out
 }
 
-/// For each user-declared leaf state that has one or more `during:` activities
-/// active (either declared on it, on any ancestor, or on root), return its
-/// state id and the flattened list of durings in leaf-first order. Durings
-/// declared on the same state follow their declaration order.
+/// For each state that can be the innermost active state, return its state id
+/// and the flattened list of `during:` activities active there (declared on it
+/// or on any ancestor) in leaf-first order. Durings declared on the same state
+/// follow their declaration order.
 ///
-/// Leaf states with no active durings are omitted — the run loop uses its
-/// default (channel+timer) path for those.
-fn active_durings_per_leaf(ir: &Ir) -> Vec<(u16, Vec<During>)> {
+/// A state can be innermost iff it has no children, OR it has children but no
+/// `default` child (so default-descent stops at it). Composites with a default
+/// child are always descended past at runtime, so they're skipped here.
+///
+/// Innermost-able states with no active durings are omitted — the run loop
+/// uses its default (channel+timer) path for those.
+fn active_durings_per_innermost_state(ir: &Ir) -> Vec<(u16, Vec<During>)> {
     let mut out = Vec::new();
     for s in &ir.states {
-        if !s.children.is_empty() {
+        if !s.children.is_empty() && s.default_child.is_some() {
             continue;
         }
         if s.parent.is_none() {
@@ -425,14 +422,14 @@ fn emit_during_bindings(chain: &[During]) -> (Vec<Ident>, TokenStream) {
     (idents, quote! { #(#stmts)* })
 }
 
-/// Emit the per-leaf match arms for the tokio run loop. Each arm constructs
-/// the active during: futures (split-borrowing context fields), then races
-/// them against the event channel and the next-timer sleep via
-/// `tokio::select!`. The default arm — used for leaves with no durings — is
-/// emitted by the caller.
+/// Emit the per-state match arms for the tokio run loop, keyed on the
+/// innermost active state id. Each arm constructs the active during: futures
+/// (split-borrowing context fields), then races them against the event channel
+/// and the next-timer sleep via `tokio::select!`. The default arm — used for
+/// states with no active durings — is emitted by the caller.
 fn emit_tokio_race_arms_with_channel(ir: &Ir) -> Vec<TokenStream> {
     let mut arms = Vec::new();
-    for (sid, chain) in active_durings_per_leaf(ir) {
+    for (sid, chain) in active_durings_per_innermost_state(ir) {
         let (binds, stmts) = emit_during_bindings(&chain);
         let select_arms = binds.iter().map(|b| {
             quote! { ev = #b => __HsmcRace::Event(ev), }
@@ -462,7 +459,7 @@ fn emit_tokio_race_arms_with_channel(ir: &Ir) -> Vec<TokenStream> {
 /// (no `events:` declared, no channel). The default arm races only the timer.
 fn emit_tokio_race_arms_timer_only(ir: &Ir) -> Vec<TokenStream> {
     let mut arms = Vec::new();
-    for (sid, chain) in active_durings_per_leaf(ir) {
+    for (sid, chain) in active_durings_per_innermost_state(ir) {
         let (binds, stmts) = emit_during_bindings(&chain);
         let select_arms = binds.iter().map(|b| {
             quote! { ev = #b => __HsmcRace::Event(ev), }
@@ -639,7 +636,7 @@ fn embassy_select_for_arity(arity: usize) -> (Ident, Vec<Ident>) {
 /// compiles unchanged.
 fn emit_embassy_race_arms_with_channel(ir: &Ir) -> Vec<TokenStream> {
     let mut arms = Vec::new();
-    for (sid, chain) in active_durings_per_leaf(ir) {
+    for (sid, chain) in active_durings_per_innermost_state(ir) {
         let n = chain.len();
         if n + 2 > 6 {
             let msg = format!(
@@ -703,7 +700,7 @@ fn emit_embassy_race_arms_with_channel(ir: &Ir) -> Vec<TokenStream> {
 /// durings on a timer-only path.
 fn emit_embassy_race_arms_timer_only(ir: &Ir) -> Vec<TokenStream> {
     let mut arms = Vec::new();
-    for (sid, chain) in active_durings_per_leaf(ir) {
+    for (sid, chain) in active_durings_per_innermost_state(ir) {
         let n = chain.len();
         if n == 0 {
             continue; // falls through to default (just timer)
@@ -1104,8 +1101,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             __timer_reason_str(__t_state, __t_trigger)
         );
     };
-    #[allow(dead_code)]
-    let _observe_transition_fired_internal = quote! {
+    let observe_transition_fired_internal = quote! {
         ::hsmc::__chart_observe!(
             TransitionFired,
             &mut self.__journal,
@@ -1890,7 +1886,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
     // run() bodies to decide whether to exit when no timers are pending: if
     // the current state has an active during, the run loop should keep
     // awaiting rather than break (the during might yet produce an event).
-    let states_with_active_durings: Vec<u16> = active_durings_per_leaf(ir)
+    let states_with_active_durings: Vec<u16> = active_durings_per_innermost_state(ir)
         .into_iter()
         .map(|(sid, _)| sid)
         .collect();
@@ -2595,7 +2591,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             /// Returns `true` once the machine has processed its `terminate` event (§4.4).
             pub fn is_terminated(&self) -> bool { self.terminated }
 
-            /// Return the current leaf state. Panics if called before the
+            /// Return the innermost active state. Panics if called before the
             /// first `step()` (§4.4).
             pub fn current_state(&self) -> #state_enum_name {
                 __state_id_to_public(self.current.expect("machine not started; call step() first"))
@@ -2950,12 +2946,18 @@ pub fn generate(ir: &Ir) -> TokenStream {
             // An empty enter slice (`m == e`) means up-transition: target
             // is already on the active path, must not be re-entered, and
             // `self.current` is set to `target` after the exit loop. A
-            // non-empty enter slice ends at the deepest default-descended
-            // leaf; `enter_state_no_descent` sets `self.current` as it
-            // goes, so no fixup is needed on that path.
+            // non-empty enter slice ends at the target itself —
+            // `enter_state_no_descent` sets `self.current` as it goes.
+            // Default-following runs after the path apply via
+            // `follow_defaults`, which fires further transitions for any
+            // chained `default(...)` declarations on the just-entered
+            // state. The compile-time default-graph cycle check
+            // guarantees the chain terminates.
+            // Returns true if any state was newly entered (i.e., the
+            // enter_path was non-empty). False on an up-transition, where
+            // the target was already on the active path.
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
-            fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                let from = self.current.unwrap_or(target);
+            fn apply_path(&mut self, from: u16, target: u16) -> bool {
                 let idx = (from as usize) * #n_states + (target as usize);
                 let (s, m, e) = __PATH_RANGE[idx];
                 let exit_path = &__PATH_DATA[s as usize..m as usize];
@@ -2965,15 +2967,18 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
                 for &sid in enter_path {
                     self.enter_state_no_descent(sid);
+                    if self.terminated { return !enter_path.is_empty(); }
                 }
                 if enter_path.is_empty() {
                     self.current = Some(target);
+                    false
+                } else {
+                    true
                 }
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
-            async fn transition(&mut self, _source_matched_state: u16, target: u16) {
-                let from = self.current.unwrap_or(target);
+            async fn apply_path(&mut self, from: u16, target: u16) -> bool {
                 let idx = (from as usize) * #n_states + (target as usize);
                 let (s, m, e) = __PATH_RANGE[idx];
                 let exit_path = &__PATH_DATA[s as usize..m as usize];
@@ -2983,22 +2988,48 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 }
                 for &sid in enter_path {
                     self.enter_state_no_descent(sid).await;
+                    if self.terminated { return !enter_path.is_empty(); }
                 }
                 if enter_path.is_empty() {
                     self.current = Some(target);
+                    false
+                } else {
+                    true
+                }
+            }
+
+            #[cfg(not(any(feature = "tokio", feature = "embassy")))]
+            fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                let from = self.current.unwrap_or(target);
+                let entered = self.apply_path(from, target);
+                if self.terminated { return; }
+                if entered {
+                    self.follow_defaults();
+                }
+            }
+
+            #[cfg(any(feature = "tokio", feature = "embassy"))]
+            async fn transition(&mut self, _source_matched_state: u16, target: u16) {
+                let from = self.current.unwrap_or(target);
+                let entered = self.apply_path(from, target).await;
+                if self.terminated { return; }
+                if entered {
+                    self.follow_defaults().await;
                 }
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn enter_path(&mut self, root: u16) {
                 self.enter_state_no_descent(root);
-                self.descend_defaults(root);
+                if self.terminated { return; }
+                self.follow_defaults();
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn enter_path(&mut self, root: u16) {
                 self.enter_state_no_descent(root).await;
-                self.descend_defaults(root).await;
+                if self.terminated { return; }
+                self.follow_defaults().await;
             }
 
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
@@ -3041,21 +3072,46 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 #observe_entered
             }
 
+            // After a state's entries finish (initial entry or any
+            // transition), follow its `default(...)` chain by firing
+            // further transitions. Each step is a full LCA-aware
+            // transition because the default target may be a sibling,
+            // ancestor, or anywhere else — not just a direct child. The
+            // compile-time default-graph cycle check guarantees the loop
+            // terminates.
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
-            fn descend_defaults(&mut self, sid: u16) {
-                let mut cur = sid;
-                while let Some(child) = __DEFAULT_CHILD[cur as usize] {
-                    self.enter_state_no_descent(child);
-                    cur = child;
+            fn follow_defaults(&mut self) {
+                while let Some(cur) = self.current {
+                    let target = match __DEFAULT_CHILD[cur as usize] {
+                        Some(t) => t,
+                        None => return,
+                    };
+                    #observe_transition_fired_internal
+                    let __t_complete_from = self.current;
+                    let entered = self.apply_path(cur, target);
+                    #observe_transition_complete
+                    if self.terminated { return; }
+                    // If the default fired an up-transition (no new state
+                    // entered), don't keep chaining — the ancestor we
+                    // landed on was already on the active path; its
+                    // default was not "freshly entered" and must not fire.
+                    if !entered { return; }
                 }
             }
 
             #[cfg(any(feature = "tokio", feature = "embassy"))]
-            async fn descend_defaults(&mut self, sid: u16) {
-                let mut cur = sid;
-                while let Some(child) = __DEFAULT_CHILD[cur as usize] {
-                    self.enter_state_no_descent(child).await;
-                    cur = child;
+            async fn follow_defaults(&mut self) {
+                while let Some(cur) = self.current {
+                    let target = match __DEFAULT_CHILD[cur as usize] {
+                        Some(t) => t,
+                        None => return,
+                    };
+                    #observe_transition_fired_internal
+                    let __t_complete_from = self.current;
+                    let entered = self.apply_path(cur, target).await;
+                    #observe_transition_complete
+                    if self.terminated { return; }
+                    if !entered { return; }
                 }
             }
 

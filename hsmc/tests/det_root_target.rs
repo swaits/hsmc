@@ -104,12 +104,32 @@ async fn det_root_targetable_by_chart_name() {
                 TraceEvent::EnterBegan { state: SR },
                 entry(SR, A_R_IN),
                 TraceEvent::Entered { state: SR },
+                // Root's `default(A)` fires.
+                TraceEvent::TransitionFired {
+                    from: Some(SR),
+                    to: SA,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SA },
                 entry(SA, A_A_IN),
                 TraceEvent::Entered { state: SA },
+                TraceEvent::TransitionComplete {
+                    from: Some(SR),
+                    to: SA,
+                },
+                // A's `default(B)` fires.
+                TraceEvent::TransitionFired {
+                    from: Some(SA),
+                    to: SB,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SB },
                 entry(SB, A_B_IN),
                 TraceEvent::Entered { state: SB },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SB,
+                },
                 TraceEvent::EventReceived { event: E_UPTOROOT },
                 TraceEvent::EventDelivered {
                     handler_state: SB,
@@ -148,10 +168,21 @@ async fn det_root_target_does_not_re_enter_root() {
             let mut m = Sub::new(Ctx);
             let _ = m.dispatch(Ev::UpToRoot).await;
             let j = m.take_journal();
-            // After the TransitionFired, no Entered event should fire.
+            // After the EVENT-driven TransitionFired (the UpToRoot one),
+            // no Entered event should fire — the up-transition exits B
+            // and A but never re-enters root, and root has no default
+            // (so no internal default-fire follows either).
             let split = j
                 .iter()
-                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .position(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .unwrap();
             let entered_after = j[split..]
                 .iter()

@@ -66,27 +66,51 @@ The full canonical reference lives at
 [`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md);
 this section is the on-ramp.
 
-### 1. The active path — you are in every state from root to leaf
+### 1. The active path — you are in every state from root to the innermost active state
 
 At any moment, the machine is in a **path** of states from the root down
-to one innermost state. If you're in `C` inside `B` inside `A`, you're
-**simultaneously** in `Root`, `A`, `B`, and `C`. The root is always
-active until termination.
+to one innermost active state. If you're in `C` inside `B` inside `A`,
+you're **simultaneously** in `Root`, `A`, `B`, and `C`. The root is
+always active until termination.
+
+The innermost active state is usually a leaf, but it can also be a
+composite that has children but no `default(...)` — see rule 2.
 
 This is the most important rule. Every rule below is downstream of it.
 If a behavior somewhere else seems weird, come back here — it's
 probably the resolution.
 
-### 2. Default-descent — composites auto-enter their default child
+### 2. `default(...)` — a transition that fires immediately on entry
 
-Every state with children declares one `default(...)`. When a composite
-state is entered, its entry actions run first, **then** the default
-child is entered, recursively, until a leaf.
+Any state **may** declare one `default(...)`. It's a transition — same
+LCA-aware algorithm as any event-triggered transition (rule 4) — that
+fires **immediately** after the declaring state's entry actions finish
+(and its durings start). The target may be **any** state in the chart:
+a child, a sibling, an ancestor, anywhere. The compiler rejects cycles
+in the default graph, so the chain is always finite.
 
-So `Root` with `default(A)` and `A` with `default(B)` means: the
-machine starts by entering `Root` → `A` → `B`, all on first step.
+The classic case is a composite descending to a leaf:
+```
+state Root { default(A); state A { default(B); state B {} } }
+```
+Entering `Root` fires its default → enter `A` → fires its default →
+enter `B`. The path lands at `B`.
 
-### 3. Event bubbling — leaf first, first handler wins
+But because `default` is a real transition, you can also redirect:
+```
+state Foyer { default(LivingRoom); }   // sibling — entering Foyer
+state LivingRoom {}                     // exits Foyer to LivingRoom
+```
+Entering `Foyer` fires its default `Foyer → LivingRoom`. LCA = parent of
+both; Foyer's exits run, LivingRoom's entries run. Foyer was entered
+and exited as part of one tick.
+
+If a state has no `default(...)`, nothing happens after its entries —
+the state itself is the resting innermost active state until something
+explicitly transitions away. This is the "microwave" pattern: a
+`Standby` state with sub-modes that the chart enters only on demand.
+
+### 3. Event bubbling — innermost first, first handler wins
 
 An event arrives. Search starts at the **innermost** active state. If
 that state has a handler, it runs and the event is consumed. If not,
@@ -95,7 +119,7 @@ with no handler, the event is silently discarded.
 
 Three corollaries:
 
-- Leaf shadows ancestor for the same trigger.
+- Innermost shadows ancestor for the same trigger.
 - Multiple handlers in one state on the same trigger fire in
   declaration order; the transition (if any) fires last.
 - **Timers don't bubble.** A timer belongs to the state that declared
@@ -110,7 +134,9 @@ Any transition's algorithm is uniform:
    The LCA itself is **not** exited.
 3. Walk **down** from the LCA to target, entering each state. The LCA
    is **not** re-entered.
-4. If target has children, default-descend (rule 2).
+4. If the target declares a `default(...)`, fire it (rule 2). Defaults
+   chain — each link is itself a full transition — until you reach a
+   state with no default. The compiler rejects cycles.
 
 The LCA always exists because root is always an upper bound. State
 names are globally unique across the chart, so a transition can target
@@ -125,8 +151,9 @@ transition algorithm do nothing. You exit the states strictly between
 current and target; the target itself is **not** re-entered.
 
 So from leaf `C` inside `B` inside `A`, an `on(Up) => A;` exits `C`
-then `B`. `A`'s entry actions don't fire. `A`'s `default` is not
-followed. `A`'s timers don't restart. `A`'s durings keep running.
+then `B`. `A`'s entry actions don't fire. `A`'s `default` does not
+fire (it only fires when `A` is freshly entered, which it wasn't).
+`A`'s timers don't restart. `A`'s durings keep running.
 
 You cannot enter a state you never left.
 
@@ -136,10 +163,11 @@ Direction is set by the path:
 
 - **Entries** fire **outer-to-inner**: when entering down through a
   path, the outermost state's entries fire first, then the next, then
-  the leaf's. Within a single state, entry actions fire in declaration
-  order. After a state's entries finish, its `during:` activities
-  start. Then default-descent (rule 2) applies recursively.
-- **Exits** fire **inner-to-outer**: leaf first, then parent, then
+  the innermost's. Within a single state, entry actions fire in
+  declaration order. After a state's entries finish, its `during:`
+  activities start. Then default-descent (rule 2) applies recursively
+  if a `default` is declared.
+- **Exits** fire **inner-to-outer**: innermost first, then parent, then
   grandparent. Within a single state, exit actions fire in declaration
   order. Before a state's exits begin, its `during:` activities are
   cancelled.

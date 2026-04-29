@@ -1,5 +1,0 @@
-error: state `Parent` has children but no `default` declaration
-  --> tests/ui/t9_2_missing_default.rs:13:11
-   |
-13 |     state Parent {
-   |           ^^^^^^

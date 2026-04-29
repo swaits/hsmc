@@ -104,6 +104,12 @@ async fn replay_full_lifecycle_matches_expected() {
                     kind: ActionKind::Entry,
                 },
                 TraceEvent::Entered { state: ST_ROOT },
+                // Root's `default(Idle)` fires as an internal transition.
+                TraceEvent::TransitionFired {
+                    from: Some(ST_ROOT),
+                    to: ST_IDLE,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: ST_IDLE },
                 TraceEvent::ActionInvoked {
                     state: ST_IDLE,
@@ -111,6 +117,10 @@ async fn replay_full_lifecycle_matches_expected() {
                     kind: ActionKind::Entry,
                 },
                 TraceEvent::Entered { state: ST_IDLE },
+                TraceEvent::TransitionComplete {
+                    from: Some(ST_ROOT),
+                    to: ST_IDLE,
+                },
                 // ── Go event delivered to Idle, transition to Active → Sub ──
                 TraceEvent::EventReceived { event: E_GO },
                 TraceEvent::EventDelivered {
@@ -136,6 +146,13 @@ async fn replay_full_lifecycle_matches_expected() {
                     kind: ActionKind::Entry,
                 },
                 TraceEvent::Entered { state: ST_ACTIVE },
+                // Active's `default(Sub)` fires as an internal transition,
+                // bracketed by its own TransitionFired/Complete.
+                TraceEvent::TransitionFired {
+                    from: Some(ST_ACTIVE),
+                    to: ST_SUB,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: ST_SUB },
                 TraceEvent::ActionInvoked {
                     state: ST_SUB,
@@ -143,6 +160,10 @@ async fn replay_full_lifecycle_matches_expected() {
                     kind: ActionKind::Entry,
                 },
                 TraceEvent::Entered { state: ST_SUB },
+                TraceEvent::TransitionComplete {
+                    from: Some(ST_ACTIVE),
+                    to: ST_SUB,
+                },
                 TraceEvent::TransitionComplete {
                     from: Some(ST_IDLE),
                     to: ST_ACTIVE,

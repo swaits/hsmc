@@ -1,0 +1,5 @@
+error: default-transition cycle detected: A -> B -> A (entering any state in this cycle would loop forever before reaching user code)
+  --> tests/ui/t9_5_default_two_cycle.rs:16:9
+   |
+16 |         default(B);
+   |         ^^^^^^^

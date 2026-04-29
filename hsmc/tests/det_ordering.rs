@@ -13,7 +13,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -293,10 +293,19 @@ async fn det_ord_full_transition_canonical_sequence() {
             let mut m = Ord::new(Ctx);
             let _ = m.dispatch(Ev::Go).await;
             let j = m.take_journal();
-            // Find the TransitionFired and capture everything until A's exit and B's entry are done.
+            // Find the EVENT-driven TransitionFired (initial default-fires
+            // are TransitionFired{Internal}; we want the GO transition).
             let trans_idx = j
                 .iter()
-                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .position(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .unwrap();
             let kinds: Vec<ActionKind> = j[trans_idx..]
                 .iter()

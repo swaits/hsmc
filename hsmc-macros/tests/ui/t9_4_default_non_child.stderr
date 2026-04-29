@@ -1,5 +1,0 @@
-error: `default(Cousin)` in state `Parent`: `Cousin` is not a direct child of `Parent`
-  --> tests/ui/t9_4_default_non_child.rs:14:9
-   |
-14 |         default(Cousin);
-   |         ^^^^^^^

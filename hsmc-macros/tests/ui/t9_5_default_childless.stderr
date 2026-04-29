@@ -1,5 +1,0 @@
-error: `default` in state `Leaf` which has no child states
-  --> tests/ui/t9_5_default_childless.rs:14:9
-   |
-14 |         default(Ghost);
-   |         ^^^^^^^

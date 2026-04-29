@@ -88,12 +88,30 @@ fn initial_descent() -> Vec<TraceEvent> {
         },
         TraceEvent::EnterBegan { state: SR },
         TraceEvent::Entered { state: SR },
+        TraceEvent::TransitionFired {
+            from: Some(SR),
+            to: SM,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SM },
         entry(SM, A_M_IN),
         TraceEvent::Entered { state: SM },
+        TraceEvent::TransitionComplete {
+            from: Some(SR),
+            to: SM,
+        },
+        TraceEvent::TransitionFired {
+            from: Some(SM),
+            to: SL,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SL },
         entry(SL, A_L_IN),
         TraceEvent::Entered { state: SL },
+        TraceEvent::TransitionComplete {
+            from: Some(SM),
+            to: SL,
+        },
     ]
 }
 fn assert_journal(actual: &[TraceEvent], expected: &[TraceEvent]) {

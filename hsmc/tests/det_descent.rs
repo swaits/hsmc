@@ -106,7 +106,9 @@ fn exit_(state: u16, action: u16) -> TraceEvent {
 
 #[tokio::test(flavor = "current_thread")]
 async fn det_descent_target_with_three_default_levels() {
-    // Idle → Tower: Tower has default chain L1 → L2 → L3.
+    // Idle → Tower: Tower's `default(L1)` fires as a transition, L1's
+    // `default(L2)` fires, L2's `default(L3)` fires. Each link is a
+    // real transition with its own TransitionFired/Complete pair.
     tokio::task::LocalSet::new()
         .run_until(async {
             let mut m = Desc::new(Ctx);
@@ -119,9 +121,19 @@ async fn det_descent_target_with_three_default_levels() {
                 },
                 TraceEvent::EnterBegan { state: SR },
                 TraceEvent::Entered { state: SR },
+                // Root → Idle fires as Root's default.
+                TraceEvent::TransitionFired {
+                    from: Some(SR),
+                    to: SI,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SI },
                 entry(SI, A_IDLE_IN),
                 TraceEvent::Entered { state: SI },
+                TraceEvent::TransitionComplete {
+                    from: Some(SR),
+                    to: SI,
+                },
                 TraceEvent::EventReceived { event: E_GO },
                 TraceEvent::EventDelivered {
                     handler_state: SI,
@@ -138,15 +150,45 @@ async fn det_descent_target_with_three_default_levels() {
                 TraceEvent::EnterBegan { state: ST },
                 entry(ST, A_TOWER_IN),
                 TraceEvent::Entered { state: ST },
+                // Tower's default(L1) fires.
+                TraceEvent::TransitionFired {
+                    from: Some(ST),
+                    to: SL1,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SL1 },
                 entry(SL1, A_L1_IN),
                 TraceEvent::Entered { state: SL1 },
+                TraceEvent::TransitionComplete {
+                    from: Some(ST),
+                    to: SL1,
+                },
+                // L1's default(L2) fires.
+                TraceEvent::TransitionFired {
+                    from: Some(SL1),
+                    to: SL2,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SL2 },
                 entry(SL2, A_L2_IN),
                 TraceEvent::Entered { state: SL2 },
+                TraceEvent::TransitionComplete {
+                    from: Some(SL1),
+                    to: SL2,
+                },
+                // L2's default(L3) fires.
+                TraceEvent::TransitionFired {
+                    from: Some(SL2),
+                    to: SL3,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SL3 },
                 entry(SL3, A_L3_IN),
                 TraceEvent::Entered { state: SL3 },
+                TraceEvent::TransitionComplete {
+                    from: Some(SL2),
+                    to: SL3,
+                },
                 TraceEvent::TransitionComplete {
                     from: Some(SI),
                     to: ST,
@@ -164,11 +206,22 @@ async fn det_descent_entries_fire_outer_to_inner() {
         .run_until(async {
             let mut m = Desc::new(Ctx);
             let _ = m.dispatch(Ev::Go).await;
-            // After the GO transition: order of Entered events should be Tower → L1 → L2 → L3.
+            // After the GO event-driven transition: order of Entered
+            // events should be Tower → L1 → L2 → L3. We split on the
+            // event-driven TransitionFired specifically (initial-entry
+            // defaults emit TransitionFired{Internal} too).
             let split = m
                 .journal()
                 .iter()
-                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .position(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .unwrap();
             let entered: Vec<u16> = m.journal()[split..]
                 .iter()
@@ -210,10 +263,21 @@ async fn det_descent_action_kind_sequence() {
         .run_until(async {
             let mut m = Desc::new(Ctx);
             let _ = m.dispatch(Ev::Go).await;
+            // Split on the event-driven TransitionFired (the initial
+            // default-fire is also TransitionFired{Internal} but happens
+            // before GO).
             let split = m
                 .journal()
                 .iter()
-                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .position(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .unwrap();
             // After the Idle exit, all subsequent ActionInvoked must be Entry kind.
             let kinds_after_exit: Vec<ActionKind> = m.journal()[split + 3..]

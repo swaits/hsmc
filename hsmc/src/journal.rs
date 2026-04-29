@@ -56,8 +56,10 @@ pub enum TransitionReason {
     /// fired this transition.
     Timer { state: u16, timer: u16 },
     /// Driven from inside the runtime without an originating event or
-    /// timer (e.g. default-descent into a child after entering a
-    /// composite state). Reserved; not currently emitted.
+    /// timer. Emitted for `default(...)` firings: after a state with a
+    /// declared default is entered, the default fires as a transition
+    /// with this reason. The default target may be any state in the
+    /// chart — sibling, ancestor, anywhere.
     Internal,
 }
 

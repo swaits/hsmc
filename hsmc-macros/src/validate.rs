@@ -8,6 +8,7 @@ use crate::ir::{HandlerKindIr, Ir, TriggerIr};
 use crate::parse::{StateBody, StatechartInput};
 
 pub fn validate(ir: &Ir) -> syn::Result<()> {
+    validate_default_graph(ir)?;
     // Duplicate state names
     let mut seen = HashMap::new();
     for s in &ir.states {
@@ -94,16 +95,11 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
             }
         }
 
-        // Children require default; default must be a direct child; no default allowed if no children.
-        if !s.children.is_empty() && s.default_child.is_none() {
-            return Err(syn::Error::new(
-                s.span,
-                format!(
-                    "state `{}` has children but no `default` declaration",
-                    s.name
-                ),
-            ));
-        }
+        // `default` is optional: a composite without a `default(...)` is a
+        // valid resting state — transitions targeting it land on the composite
+        // itself, with no descent. Substates of such a composite are reachable
+        // only via explicit transitions. (`default` must still be a direct
+        // child when declared; that's checked in `validate_parse_tree`.)
 
         // duplicate transitions per trigger in this state, AND transition
         // target (if present) must be declared after every action handler
@@ -184,9 +180,70 @@ pub fn validate(ir: &Ir) -> syn::Result<()> {
     Ok(())
 }
 
+/// Walk the default-edge graph and reject cycles. Each state has at most one
+/// outgoing default edge, so the graph has out-degree ≤ 1 and any cycle is a
+/// simple chain that loops. Detection: 3-color DFS via an iterative chain walk.
+///
+/// Cycles are rejected at compile time because at runtime, a default chain
+/// fires as a sequence of immediate transitions on entry — a cycle would loop
+/// forever, never returning control to the dispatcher.
+fn validate_default_graph(ir: &Ir) -> syn::Result<()> {
+    let n = ir.states.len();
+    // 0 = white (unvisited), 1 = gray (on current chain), 2 = black (done).
+    let mut color = vec![0u8; n];
+    for start in 0..n {
+        if color[start] != 0 {
+            continue;
+        }
+        let mut chain: Vec<usize> = Vec::new();
+        let mut cur = start;
+        loop {
+            if color[cur] == 2 {
+                // Joined a previously-cleared subgraph. Chain so far is fine.
+                break;
+            }
+            if color[cur] == 1 {
+                // Back-edge into the current chain — cycle.
+                let cycle_start = chain
+                    .iter()
+                    .position(|&x| x == cur)
+                    .expect("gray node must be on current chain");
+                let cycle: Vec<String> = chain[cycle_start..]
+                    .iter()
+                    .map(|&id| ir.states[id].name.to_string())
+                    .collect();
+                let pretty = format!("{} -> {}", cycle.join(" -> "), cycle[0]);
+                let err_span = ir.states[chain[cycle_start]]
+                    .default_target_ident
+                    .as_ref()
+                    .map(|(_, s)| *s)
+                    .unwrap_or(ir.states[chain[cycle_start]].span);
+                return Err(syn::Error::new(
+                    err_span,
+                    format!(
+                        "default-transition cycle detected: {} \
+                         (entering any state in this cycle would loop forever \
+                          before reaching user code)",
+                        pretty
+                    ),
+                ));
+            }
+            color[cur] = 1;
+            chain.push(cur);
+            match ir.states[cur].default_child {
+                Some(next) => cur = next as usize,
+                None => break,
+            }
+        }
+        for &id in &chain {
+            color[id] = 2;
+        }
+    }
+    Ok(())
+}
+
 /// Additional checks that require the original parse tree (for counting duplicate
-/// `default`/`terminate` with their spans, and the "default in childless state" /
-/// "default not a direct child" / "terminate in non-root" errors).
+/// `default`/`terminate` with their spans, and the "terminate in non-root" error).
 pub fn validate_parse_tree(input: &StatechartInput) -> syn::Result<()> {
     let root_name = input.name.to_string();
     validate_body(&input.body, true, &root_name)
@@ -217,28 +274,13 @@ fn validate_body(body: &StateBody, is_root: bool, state_name: &str) -> syn::Resu
             ));
         }
     }
-    if body.default_child.is_some() && body.children.is_empty() {
-        return Err(syn::Error::new(
-            body.default_span.unwrap(),
-            format!(
-                "`default` in state `{}` which has no child states",
-                state_name
-            ),
-        ));
-    }
-    if let (Some((dc, dspan)), false) = (&body.default_child, body.children.is_empty()) {
-        // default must be a direct child
-        let is_child = body.children.iter().any(|c| c.name == *dc);
-        if !is_child {
-            return Err(syn::Error::new(
-                *dspan,
-                format!(
-                    "`default({})` in state `{}`: `{}` is not a direct child of `{}`",
-                    dc, state_name, dc, state_name
-                ),
-            ));
-        }
-    }
+    // default(...) is a transition that fires immediately after the
+    // declaring state's entries finish. It may be declared on any state
+    // (composite or leaf) and may target any state in the chart. A leaf
+    // with `default(T)` just transitions to T on every entry. The
+    // default-graph cycle check in `validate_default_graph` (run from the
+    // top-level `validate_parse_tree` over the lowered IR) ensures we
+    // cannot construct an infinite chain at startup.
     for c in &body.children {
         let cname = c.name.to_string();
         validate_body(&c.body, false, &cname)?;

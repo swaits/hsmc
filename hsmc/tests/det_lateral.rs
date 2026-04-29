@@ -140,7 +140,8 @@ fn handler(state: u16, action: u16) -> TraceEvent {
     }
 }
 
-// Initial descent: Root → Parent → A.
+// Initial descent: Root → (Root's default fires) → Parent → (Parent's
+// default fires) → A. Each default-fire is a real transition.
 fn initial_descent() -> Vec<TraceEvent> {
     vec![
         TraceEvent::Started {
@@ -148,12 +149,30 @@ fn initial_descent() -> Vec<TraceEvent> {
         },
         TraceEvent::EnterBegan { state: SR },
         TraceEvent::Entered { state: SR },
+        TraceEvent::TransitionFired {
+            from: Some(SR),
+            to: SP,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SP },
         entry(SP, A_P_IN),
         TraceEvent::Entered { state: SP },
+        TraceEvent::TransitionComplete {
+            from: Some(SR),
+            to: SP,
+        },
+        TraceEvent::TransitionFired {
+            from: Some(SP),
+            to: SA,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SA },
         entry(SA, A_A_IN),
         TraceEvent::Entered { state: SA },
+        TraceEvent::TransitionComplete {
+            from: Some(SP),
+            to: SA,
+        },
     ]
 }
 
@@ -285,9 +304,19 @@ async fn det_lateral_target_with_children_default_descends() {
                 TraceEvent::EnterBegan { state: SD },
                 entry(SD, A_D_IN),
                 TraceEvent::Entered { state: SD },
+                // D's `default(E)` fires as an internal transition.
+                TraceEvent::TransitionFired {
+                    from: Some(SD),
+                    to: SE,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SE },
                 entry(SE, A_E_IN),
                 TraceEvent::Entered { state: SE },
+                TraceEvent::TransitionComplete {
+                    from: Some(SD),
+                    to: SE,
+                },
                 TraceEvent::TransitionComplete {
                     from: Some(SA),
                     to: SD,
@@ -471,7 +500,15 @@ async fn det_lateral_entry_outer_then_inner() {
             let entries: Vec<u16> = m
                 .journal()
                 .iter()
-                .skip_while(|e| !matches!(e, TraceEvent::TransitionFired { .. }))
+                .skip_while(|e| {
+                    !matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .filter_map(|e| match e {
                     TraceEvent::Entered { state } => Some(*state),
                     _ => None,

@@ -1,3 +1,5 @@
+// A → B → A is a default cycle: entering either state would loop
+// forever before reaching user code. Compile-time error.
 use hsmc::statechart;
 
 #[derive(Debug, Clone)]
@@ -9,9 +11,13 @@ statechart! {
 M {
     context: Ctx;
     events: Ev;
-    default(Leaf);
-    state Leaf {
-        default(Ghost);
+    default(A);
+    state A {
+        default(B);
+        entry: e;
+    }
+    state B {
+        default(A);
         entry: e;
     }
 }

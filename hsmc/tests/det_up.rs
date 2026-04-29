@@ -113,6 +113,8 @@ fn exit_(state: u16, action: u16) -> TraceEvent {
     }
 }
 fn initial_descent() -> Vec<TraceEvent> {
+    // Each `default(...)` fires as a TransitionFired{Internal} /
+    // TransitionComplete pair around the entered state.
     vec![
         TraceEvent::Started {
             chart_hash: Up::<8>::CHART_HASH,
@@ -120,18 +122,54 @@ fn initial_descent() -> Vec<TraceEvent> {
         TraceEvent::EnterBegan { state: SR },
         entry(SR, A_R_IN),
         TraceEvent::Entered { state: SR },
+        TraceEvent::TransitionFired {
+            from: Some(SR),
+            to: SA,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SA },
         entry(SA, A_A_IN),
         TraceEvent::Entered { state: SA },
+        TraceEvent::TransitionComplete {
+            from: Some(SR),
+            to: SA,
+        },
+        TraceEvent::TransitionFired {
+            from: Some(SA),
+            to: SB,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SB },
         entry(SB, A_B_IN),
         TraceEvent::Entered { state: SB },
+        TraceEvent::TransitionComplete {
+            from: Some(SA),
+            to: SB,
+        },
+        TraceEvent::TransitionFired {
+            from: Some(SB),
+            to: SC,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SC },
         entry(SC, A_C_IN),
         TraceEvent::Entered { state: SC },
+        TraceEvent::TransitionComplete {
+            from: Some(SB),
+            to: SC,
+        },
+        TraceEvent::TransitionFired {
+            from: Some(SC),
+            to: SD,
+            reason: TransitionReason::Internal,
+        },
         TraceEvent::EnterBegan { state: SD },
         entry(SD, A_D_IN),
         TraceEvent::Entered { state: SD },
+        TraceEvent::TransitionComplete {
+            from: Some(SC),
+            to: SD,
+        },
     ]
 }
 fn assert_journal(actual: &[TraceEvent], expected: &[TraceEvent]) {
@@ -361,9 +399,19 @@ async fn det_up_current_state_is_target_after() {
                 .rev()
                 .find(|(_, e)| matches!(e, TraceEvent::Entered { .. }))
                 .map(|(i, _)| i);
+            // Find the EVENT-driven UpToB transition (initial defaults
+            // emit TransitionFired{Internal} too).
             let split = j
                 .iter()
-                .position(|e| matches!(e, TraceEvent::TransitionFired { .. }))
+                .position(|e| {
+                    matches!(
+                        e,
+                        TraceEvent::TransitionFired {
+                            reason: TransitionReason::Event { .. },
+                            ..
+                        }
+                    )
+                })
                 .unwrap();
             // The last Entered event must be BEFORE the transition.
             assert!(

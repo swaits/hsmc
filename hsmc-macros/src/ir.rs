@@ -79,7 +79,17 @@ pub struct StateIr {
     pub name: Ident,
     pub parent: Option<u16>,
     pub depth: u8,
+    /// Target of this state's `default(...)` declaration, if any. Resolved
+    /// in `resolve_transitions`. The target may be any state in the chart
+    /// (not just a direct child) — `default(...)` is a transition that
+    /// fires immediately after the declaring state's entries, using the
+    /// same LCA-aware algorithm as event-driven transitions. The
+    /// default-graph cycle check in `validate.rs` ensures the chain
+    /// terminates.
     pub default_child: Option<u16>,
+    /// Original ident from the parse tree, kept until resolution so we can
+    /// emit good error spans on unknown targets / cycles.
+    pub default_target_ident: Option<(Ident, Span)>,
     pub entries: Vec<u16>, // action ids
     pub exits: Vec<u16>,
     pub handlers: Vec<HandlerIr>,
@@ -192,6 +202,7 @@ fn alloc_state(ir: &mut Ir, name: Ident, parent: Option<u16>, depth: u8, span: S
         parent,
         depth,
         default_child: None,
+        default_target_ident: None,
         entries: Vec::new(),
         exits: Vec::new(),
         handlers: Vec::new(),
@@ -451,12 +462,11 @@ fn lower_body(
     }
     ir.states[state_id as usize].children = child_ids.clone();
 
-    if let Some((dc_ident, _)) = &body.default_child {
-        let resolved = child_ids
-            .iter()
-            .find(|&&cid| ir.states[cid as usize].name == *dc_ident)
-            .copied();
-        ir.states[state_id as usize].default_child = resolved;
+    // Stash the unresolved default target. The actual id is filled in by
+    // `resolve_transitions`, which has the global state-name → id map and
+    // can resolve targets that aren't direct children.
+    if let Some((dc_ident, dc_span)) = &body.default_child {
+        ir.states[state_id as usize].default_target_ident = Some((dc_ident.clone(), *dc_span));
     }
 
     Ok(())
@@ -547,5 +557,24 @@ pub fn resolve_transitions(ir: &mut Ir) -> syn::Result<()> {
             }
         }
     }
+
+    // Resolve default-transition targets against the same global map.
+    for i in 0..n {
+        if let Some((ident, _span)) = ir.states[i].default_target_ident.clone() {
+            let tname = ident.to_string();
+            match name_map.get(&tname).copied() {
+                Some(id) => {
+                    ir.states[i].default_child = Some(id);
+                }
+                None => {
+                    return Err(syn::Error::new(
+                        ident.span(),
+                        format!("unknown state `{}` in `default(...)`", ident),
+                    ));
+                }
+            }
+        }
+    }
+
     Ok(())
 }

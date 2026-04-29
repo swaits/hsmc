@@ -19,7 +19,7 @@
 #![cfg(all(feature = "tokio", feature = "journal"))]
 #![allow(unexpected_cfgs)]
 
-use hsmc::{statechart, ActionKind, TraceEvent};
+use hsmc::{statechart, ActionKind, TraceEvent, TransitionReason};
 
 #[derive(Default)]
 pub struct Ctx;
@@ -124,24 +124,63 @@ async fn det_initial_descent_records_full_path() {
             let actual = m.take_journal();
             let expected = vec![
                 // Initial enter (driven by dispatch's prime-state branch).
+                // Each `default(...)` is a real transition, so the journal
+                // brackets every default-fire with TransitionFired
+                // (Internal) / TransitionComplete pairs.
                 TraceEvent::Started {
                     chart_hash: Init4::<8>::CHART_HASH,
                 },
                 TraceEvent::EnterBegan { state: SR },
                 entry(SR, A_R_IN),
                 TraceEvent::Entered { state: SR },
+                TraceEvent::TransitionFired {
+                    from: Some(SR),
+                    to: SA,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SA },
                 entry(SA, A_A_IN),
                 TraceEvent::Entered { state: SA },
+                TraceEvent::TransitionComplete {
+                    from: Some(SR),
+                    to: SA,
+                },
+                TraceEvent::TransitionFired {
+                    from: Some(SA),
+                    to: SB,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SB },
                 entry(SB, A_B_IN),
                 TraceEvent::Entered { state: SB },
+                TraceEvent::TransitionComplete {
+                    from: Some(SA),
+                    to: SB,
+                },
+                TraceEvent::TransitionFired {
+                    from: Some(SB),
+                    to: SC,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SC },
                 entry(SC, A_C_IN),
                 TraceEvent::Entered { state: SC },
+                TraceEvent::TransitionComplete {
+                    from: Some(SB),
+                    to: SC,
+                },
+                TraceEvent::TransitionFired {
+                    from: Some(SC),
+                    to: SD,
+                    reason: TransitionReason::Internal,
+                },
                 TraceEvent::EnterBegan { state: SD },
                 entry(SD, A_D_IN),
                 TraceEvent::Entered { state: SD },
+                TraceEvent::TransitionComplete {
+                    from: Some(SC),
+                    to: SD,
+                },
                 // Halt.
                 TraceEvent::EventReceived { event: E_HALT },
                 TraceEvent::TerminateRequested { event: E_HALT },
