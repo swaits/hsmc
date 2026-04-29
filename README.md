@@ -28,7 +28,9 @@ statechart! {
 ## What it does
 
 - **Harel-style hierarchical states.** Nested states with `entry:`/`exit:`
-  actions, LCA-aware transitions, default-child descent, `terminate`.
+  actions, LCA-aware transitions, optional `default(...)` (a transition
+  that may target any state — descend, redirect to a sibling, bounce
+  to an ancestor — with a compile-time cycle check), `terminate`.
 - **Event-driven transitions and actions.** Typed payload bindings:
   `on(PacketRx { rssi: i16 }) => handler;`.
 - **Timer triggers.** `on(after Duration::from_secs(5)) => Next;` and
@@ -50,12 +52,9 @@ statechart! {
   records every action, transition, timer, and event in order — same
   inputs, byte-identical journal. The runtime queue and timer table
   carry Pearlite specs that Creusot + Why3 + alt-ergo + z3 discharge
-  mechanically (`just verify`). 159 tests pin every spec rule
-  (journal sequences + trace-format regression + integration).
-- **Backward-compatible chart syntax.** Every v0.1 / v0.2 / v0.3
-  statechart compiles under v0.4 unchanged. The 0.4 breaks are in
-  observability surface area only — see
-  [Migration](#migration-from-v03).
+  mechanically (`just verify`). The integration suite pins every
+  spec rule with byte-equal expected-vs-actual journals, trace-format
+  regression checks, and per-feature behavior tests.
 
 ## How a chart behaves — the building blocks
 
@@ -165,8 +164,9 @@ Direction is set by the path:
   path, the outermost state's entries fire first, then the next, then
   the innermost's. Within a single state, entry actions fire in
   declaration order. After a state's entries finish, its `during:`
-  activities start. Then default-descent (rule 2) applies recursively
-  if a `default` is declared.
+  activities start. Then, if the state declared a `default(...)`,
+  it fires as a transition (rule 2) — chains continue until a state
+  with no default.
 - **Exits** fire **inner-to-outer**: innermost first, then parent, then
   grandparent. Within a single state, exit actions fire in declaration
   order. Before a state's exits begin, its `during:` activities are
@@ -228,7 +228,7 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-hsmc = { version = "0.4", features = ["embassy"] }  # or ["tokio"]
+hsmc = { version = "0.5", features = ["embassy"] }  # or ["tokio"]
 ```
 
 Minimal timer-only machine:
@@ -385,7 +385,7 @@ For `statechart! Foo { ... }` the macro emits:
 | `fn step(elapsed) -> Option<Duration>` | One unit of work (test/polling driver).                |
 | `fn send(ev)`                          | Raw push, non-draining. For tests.                     |
 | `sender() -> Sender`                   | Clone handle for other tasks / ISRs.                   |
-| `current_state()`                      | The active leaf state.                                 |
+| `current_state()`                      | The innermost active state.                            |
 | `is_terminated()`                      | True after `terminate` event.                          |
 | `has_pending_events()`                 | Queue non-empty.                                       |
 | `context()` / `context_mut()`          | Borrow the root context.                               |
@@ -402,135 +402,6 @@ For `statechart! Foo { ... }` the macro emits:
 
 `embassy` and `tokio` are mutually exclusive — enabling both is a compile
 error.
-
-## Migration from v0.3
-
-The 0.4 breaks are in the observability surface area only; chart
-syntax and runtime API are unchanged.
-
-### 1. Trace prefix changed
-
-Trace lines (when `trace-defmt` / `trace-log` / `trace-tracing` is
-enabled) now use `[statechart:Name]` instead of `[Name]`. Update any
-log filters or grep patterns. The verb after the prefix is now a
-single hyphenated token followed by `key=value` pairs (logfmt).
-
-### 2. `TraceEvent::TransitionFired` carries `reason`
-
-Add `reason` to any pattern matches:
-
-```rust
-// before:
-TraceEvent::TransitionFired { from, to } => …
-// after:
-TraceEvent::TransitionFired { from, to, reason } => …
-// or, if you don't need it:
-TraceEvent::TransitionFired { from, to, .. } => …
-```
-
-The new field carries `TransitionReason::Event { event }`,
-`Timer { state, timer }`, or `Internal` so consumers can see what
-triggered the transition.
-
-### 3. New `TraceEvent` variants
-
-If you `match` exhaustively on `TraceEvent`, add arms for the new
-variants. Otherwise nothing changes:
-
-- `EnterBegan { state }` — phase begin marker pairs with `Entered`.
-- `ExitBegan { state }` — phase begin marker pairs with `Exited`.
-- `TransitionComplete { from, to }` — pairs with `TransitionFired`.
-- `EventReceived { event }` — fires when an event is popped from the
-  queue, before handler search.
-
-These are pure observation — no runtime semantic change.
-
-### 4. `trace;` keyword is a no-op
-
-Charts that declared `trace;` continue to compile. The keyword no
-longer gates emission — observation is now controlled purely by
-which `trace-*` cargo feature you enable. You can leave `trace;` in
-or remove it; both work.
-
-### 5. Trace backends are no longer mutually exclusive
-
-Previously, enabling more than one of `trace-defmt` / `trace-log` /
-`trace-tracing` was a compile error. Now they fan out independently:
-turn on whichever you want.
-
-## Migration from v0.1
-
-v0.1 statecharts continue to compile. New features are purely additive:
-
-### 1. `events:` is now optional
-
-Previously required; now omit for pure timer-only machines:
-
-```rust
-statechart! {
-    Blinker {
-        context: Ctx;
-        default(On);
-        state On  { on(after Duration::from_millis(500)) => Off; }
-        state Off { on(after Duration::from_millis(500)) => On; }
-    }
-}
-```
-
-### 2. `dispatch(ev).await` replaces the push+drain helper
-
-Before (v0.1, in the dogfood firmware):
-
-```rust
-async fn push<M>(m: &mut M, ev: E) {
-    m.send(ev).expect("queue full");
-    while m.has_pending_events() {
-        m.step(Duration::ZERO).await;
-    }
-}
-push(&mut machine, ev).await;
-```
-
-After (v0.2):
-
-```rust
-machine.dispatch(ev).await.unwrap();
-```
-
-### 3. `during:` replaces the imperative I/O outer loop
-
-Before — a radio task with per-state match and select:
-
-```rust
-loop {
-    match machine.current_state() {
-        RadioState::Receiving => {
-            match select(rx_once(&mut lora, &cfg, &mut rx_buf),
-                         commands.receive()).await {
-                Either::First(r) => handle_rx(r, &mut machine, ...).await,
-                Either::Second(c) => handle_cmd(c, &mut machine, ...).await,
-            }
-        }
-        _ => { ... }
-    }
-}
-```
-
-After — the statechart owns the loop:
-
-```rust
-state Receiving {
-    during: next_packet(lora, rx_buf);
-    on(PacketRx { rssi: i16, snr: i16 }) => record_packet;
-    on(StopRx) => Idle;
-}
-
-#[embassy_executor::task]
-async fn radio_task(lora: LoRaDriver, ch: &'static RadioChan) {
-    let mut m = Radio::new(RadioCtx { lora, ... }, ch);
-    m.run().await.unwrap();
-}
-```
 
 ## Examples
 
@@ -563,13 +434,14 @@ spec-rule → proof mapping.
 
 Beyond Creusot, the suite includes:
 
-- **159 integration tests** — full chart behavior, byte-equal expected-
-  vs-actual journals for ~113 deterministic-flow tests, plus 11 trace-
-  format regression tests pinning every observation verb's exact
-  textual rendering.
-- **0 missed mutants** under `cargo mutants --features
+- **Integration tests** — full chart behavior and per-feature
+  determinism, with byte-equal expected-vs-actual journals on the
+  `det_*` deterministic-flow tests, plus trace-format regression
+  tests pinning every observation verb's textual rendering. Run
+  with `cargo test --workspace --features tokio,journal`.
+- **`cargo mutants`** — full coverage under `cargo mutants --features
   tokio,journal,trace-log`.
-- **Miri**: 68 tests, no UB.
+- **Miri** — clean, no UB on the runtime crates.
 
 ## Observability — one journal, multiple outputs
 
@@ -639,25 +511,16 @@ diffed against expected behavior the same way the journal can.
 
 ## Status
 
-- v0.1 spec: fully implemented.
-- v0.2: `during:`, optional `events:`, `dispatch()`, `STATE_CHART`,
-  drain-on-send. Up-transitions no longer exit/re-enter the target.
-- v0.3: `journal` feature + deterministic trace + replay; root
-  state targetable by chart name; Creusot verification of the
-  runtime data structures; 113-test deterministic-flow suite.
-- v0.4: unified observation pipeline (journal + trace share one
-  vocabulary, fan out to multiple sinks at compile time); logfmt-
-  style trace format with `[statechart:Name]` prefix; transition
-  reasons; entry/exit/transition begin/end markers; multiple trace
-  backends now compose; chart-level `trace;` keyword deprecated.
-  Breaking on the `TraceEvent` enum shape; chart syntax unchanged.
-- Out of scope (deliberate): guard conditions, orthogonal/parallel
-  regions, history states, deferred events, internal transitions,
-  state-local context, event priorities beyond FIFO, runtime
-  statechart modification, multi-threaded tokio. See
-  [`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md)
-  § "What `hsmc` deliberately does NOT have" for the rationale and
-  what to use instead.
+Pre-1.0. Per-release breaking changes are documented in
+[`CHANGELOG.md`](CHANGELOG.md).
+
+Out of scope (deliberate): guard conditions, orthogonal/parallel
+regions, history states, deferred events, internal transitions,
+state-local context, event priorities beyond FIFO, runtime
+statechart modification, multi-threaded tokio. See
+[`docs/002. hsmc-semantics-formal.md`](docs/002.%20hsmc-semantics-formal.md)
+§ "What `hsmc` deliberately does NOT have" for the rationale and
+what to use instead.
 
 ## License
 

@@ -4,6 +4,66 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.5.0 — 2026-04-28
+
+### `default(...)` is a real LCA-aware transition
+
+`default(...)` is now modeled the same way as any event-driven
+transition. It fires immediately after the declaring state's entries
+finish and its durings start, applying the standard exit-to-LCA /
+enter-to-target algorithm. Three behavioral changes follow from this:
+
+- **Optional.** A state with children no longer must declare a
+  `default(...)`. When omitted, the state itself is the resting
+  innermost active state; substates are reachable only via explicit
+  transitions. This is the "microwave Standby" pattern — `Standby`
+  has substates like `LowPower` you enter only on demand, and
+  `=> Standby;` lands at `Standby` itself with no descent.
+- **Targets anywhere.** The default target may be any state in the
+  chart — a child (the classic descent case), a sibling, an ancestor,
+  anywhere. `default(<sibling-or-ancestor>)` exits the just-entered
+  state as part of the default-fire transition; the same uniform
+  rule covers descent, redirection, and up-bounce.
+- **Cycle-checked at compile time.** The default-edge graph
+  (out-degree ≤ 1 per node) is rejected if it contains any cycle,
+  including `default(self)`. The check guarantees default chains
+  terminate at runtime — entering any state in a cycle would loop
+  forever before reaching user code.
+
+### Breaking changes
+
+- **Journal format.** Default-fires now emit `TransitionFired` (with
+  `reason: TransitionReason::Internal`) and `TransitionComplete`
+  brackets around their entry sequence. `Internal` was previously
+  reserved and never emitted; it is now active. Charts that
+  hand-build expected journal sequences (replay-style tests) must
+  include these brackets around every default-fire — see the
+  per-test diffs in this release for the pattern.
+- **Validation.** Two compile-time errors went away:
+  `default(<non-direct-child>)` is now valid (the target may be
+  anywhere), and `default` on a childless state is now valid
+  (the leaf transitions out immediately on entry). Code relying
+  on these as guard rails must adapt. A new compile-time error
+  takes their place: any cycle in the default graph is rejected
+  with a pinpoint message naming the cycle (e.g.
+  `default-transition cycle detected: A -> B -> A`).
+
+### Other
+
+- README and `docs/002. hsmc-semantics-formal.md` rewritten so the
+  default-as-transition framing is the primary description; the old
+  "automatic transition into a child" language is gone.
+- New integration tests covering each branch of the new semantics:
+  `det_optional_default` (microwave pattern), `det_default_sibling`
+  (lateral default), `det_default_chained` (multi-link default
+  chain), `det_default_ancestor` (up-default landing on an
+  ancestor).
+- New compile-fail UI fixtures for cycle detection
+  (`t9_4_default_self_cycle`, `t9_5_default_two_cycle`) and new
+  compile-pass fixtures for non-child default targets
+  (`composite_without_default`, `default_targets_sibling`,
+  `default_targets_ancestor`).
+
 ## 0.4.1 — 2026-04-28
 
 ### Performance — dispatch hot path
