@@ -171,8 +171,17 @@ safety:
     just miri
     echo ""
     echo "4/4 — Mutation testing on safety-relevant codegen fns..."
-    cargo mutants -p hsmc-macros \
-        -F "compute_transition_paths|compute_terminate_paths|compute_event_dispatch" \
+    # `--features hsmc/tokio,hsmc/journal --test-package hsmc` is
+    # essential: the safety-relevant tests (det_lateral, det_up,
+    # det_descent, etc.) live in hsmc/tests/ and are gated on those
+    # two features. Without them, cargo-mutants runs only the
+    # hsmc-macros per-package test set and large swathes of the
+    # LCA / path-derivation logic look uncovered when they aren't.
+    cargo mutants \
+        --regex "compute_transition_paths|compute_terminate_paths|compute_event_dispatch" \
+        --features hsmc/tokio,hsmc/journal \
+        --test-package hsmc \
+        --test-tool nextest \
         --jobs 4 --no-shuffle
     echo ""
     echo "✅ Unsafe audit complete. See docs/004. unsafe-safety-contract.md"
