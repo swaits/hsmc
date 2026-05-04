@@ -2691,6 +2691,11 @@ pub fn generate(ir: &Ir) -> TokenStream {
                             // values < #n_states. __ev_id was checked != u16::MAX
                             // and __event_to_id returns < #n_events otherwise.
                             // Hence __dispatch_idx < #n_dispatch = __DISPATCH.len().
+                            // The debug_assert is the safety obligation
+                            // expressed at runtime in debug builds — every
+                            // hsmc behavior test exercises this site, so a
+                            // codegen invariant break trips it loudly.
+                            debug_assert!(__dispatch_idx < __DISPATCH.len());
                             let (__handler_state, __actions, __target) = unsafe {
                                 *__DISPATCH.get_unchecked(__dispatch_idx)
                             };
@@ -2973,7 +2978,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 // The triple (s, m, e) was emitted at codegen with the
                 // invariant 0 <= s <= m <= e <= __PATH_DATA.len(), so the
                 // two slice ranges are in-bounds.
+                debug_assert!(idx < __PATH_RANGE.len());
                 let (s, m, e) = unsafe { *__PATH_RANGE.get_unchecked(idx) };
+                debug_assert!((s as usize) <= (m as usize) && (m as usize) <= (e as usize) && (e as usize) <= __PATH_DATA.len());
                 let exit_path = unsafe {
                     __PATH_DATA.get_unchecked(s as usize..m as usize)
                 };
@@ -3107,6 +3114,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 while let Some(cur) = self.current {
                     // SAFETY: cur is a state id < #n_states (codegen
                     // invariant — see __DISPATCH lookup safety note).
+                    debug_assert!((cur as usize) < __DEFAULT_CHILD.len());
                     let target = match unsafe { *__DEFAULT_CHILD.get_unchecked(cur as usize) } {
                         Some(t) => t,
                         None => return,
@@ -3128,6 +3136,7 @@ pub fn generate(ir: &Ir) -> TokenStream {
             async fn follow_defaults(&mut self) {
                 while let Some(cur) = self.current {
                     // SAFETY: see sync branch — same invariant.
+                    debug_assert!((cur as usize) < __DEFAULT_CHILD.len());
                     let target = match unsafe { *__DEFAULT_CHILD.get_unchecked(cur as usize) } {
                         Some(t) => t,
                         None => return,
@@ -3208,7 +3217,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
                 if let Some(cur) = self.current {
                     // SAFETY: cur < #n_states (codegen invariant). The
                     // (s, e) tuple was emitted with 0 <= s <= e <= len.
+                    debug_assert!((cur as usize) < __TERMINATE_RANGE.len());
                     let (s, e) = unsafe { *__TERMINATE_RANGE.get_unchecked(cur as usize) };
+                    debug_assert!((s as usize) <= (e as usize) && (e as usize) <= __TERMINATE_DATA.len());
                     let path = unsafe {
                         __TERMINATE_DATA.get_unchecked(s as usize..e as usize)
                     };
@@ -3226,7 +3237,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
             async fn do_terminate(&mut self) {
                 if let Some(cur) = self.current {
                     // SAFETY: see sync branch — same invariant.
+                    debug_assert!((cur as usize) < __TERMINATE_RANGE.len());
                     let (s, e) = unsafe { *__TERMINATE_RANGE.get_unchecked(cur as usize) };
+                    debug_assert!((s as usize) <= (e as usize) && (e as usize) <= __TERMINATE_DATA.len());
                     let path = unsafe {
                         __TERMINATE_DATA.get_unchecked(s as usize..e as usize)
                     };
