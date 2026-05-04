@@ -2686,8 +2686,14 @@ pub fn generate(ir: &Ir) -> TokenStream {
                         if let Some(__cur) = self.current {
                             let __dispatch_idx =
                                 (__cur as usize) * #n_events + (__ev_id as usize);
-                            let (__handler_state, __actions, __target) =
-                                __DISPATCH[__dispatch_idx];
+                            // SAFETY: __cur is set only by codegen-internal
+                            // writes (apply_path/enter_state_no_descent) to
+                            // values < #n_states. __ev_id was checked != u16::MAX
+                            // and __event_to_id returns < #n_events otherwise.
+                            // Hence __dispatch_idx < #n_dispatch = __DISPATCH.len().
+                            let (__handler_state, __actions, __target) = unsafe {
+                                *__DISPATCH.get_unchecked(__dispatch_idx)
+                            };
                             if __handler_state != u16::MAX {
                                 #observe_event_delivered
                                 self.run_handlers(
@@ -2738,8 +2744,10 @@ pub fn generate(ir: &Ir) -> TokenStream {
                         if let Some(__cur) = self.current {
                             let __dispatch_idx =
                                 (__cur as usize) * #n_events + (__ev_id as usize);
-                            let (__handler_state, __actions, __target) =
-                                __DISPATCH[__dispatch_idx];
+                            // SAFETY: see sync branch — same invariant.
+                            let (__handler_state, __actions, __target) = unsafe {
+                                *__DISPATCH.get_unchecked(__dispatch_idx)
+                            };
                             if __handler_state != u16::MAX {
                                 #observe_event_delivered
                                 self.run_handlers(
@@ -2959,9 +2967,19 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn apply_path(&mut self, from: u16, target: u16) -> bool {
                 let idx = (from as usize) * #n_states + (target as usize);
-                let (s, m, e) = __PATH_RANGE[idx];
-                let exit_path = &__PATH_DATA[s as usize..m as usize];
-                let enter_path = &__PATH_DATA[m as usize..e as usize];
+                // SAFETY: from and target are state ids produced by codegen
+                // (current state, __DISPATCH/__DEFAULT_CHILD targets, root=0).
+                // All are < #n_states, so idx < #n_pairs = __PATH_RANGE.len().
+                // The triple (s, m, e) was emitted at codegen with the
+                // invariant 0 <= s <= m <= e <= __PATH_DATA.len(), so the
+                // two slice ranges are in-bounds.
+                let (s, m, e) = unsafe { *__PATH_RANGE.get_unchecked(idx) };
+                let exit_path = unsafe {
+                    __PATH_DATA.get_unchecked(s as usize..m as usize)
+                };
+                let enter_path = unsafe {
+                    __PATH_DATA.get_unchecked(m as usize..e as usize)
+                };
                 for &sid in exit_path {
                     self.exit_state(sid);
                 }
@@ -2980,9 +2998,14 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn apply_path(&mut self, from: u16, target: u16) -> bool {
                 let idx = (from as usize) * #n_states + (target as usize);
-                let (s, m, e) = __PATH_RANGE[idx];
-                let exit_path = &__PATH_DATA[s as usize..m as usize];
-                let enter_path = &__PATH_DATA[m as usize..e as usize];
+                // SAFETY: see sync branch — same invariant.
+                let (s, m, e) = unsafe { *__PATH_RANGE.get_unchecked(idx) };
+                let exit_path = unsafe {
+                    __PATH_DATA.get_unchecked(s as usize..m as usize)
+                };
+                let enter_path = unsafe {
+                    __PATH_DATA.get_unchecked(m as usize..e as usize)
+                };
                 for &sid in exit_path {
                     self.exit_state(sid).await;
                 }
@@ -3082,7 +3105,9 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn follow_defaults(&mut self) {
                 while let Some(cur) = self.current {
-                    let target = match __DEFAULT_CHILD[cur as usize] {
+                    // SAFETY: cur is a state id < #n_states (codegen
+                    // invariant — see __DISPATCH lookup safety note).
+                    let target = match unsafe { *__DEFAULT_CHILD.get_unchecked(cur as usize) } {
                         Some(t) => t,
                         None => return,
                     };
@@ -3102,7 +3127,8 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn follow_defaults(&mut self) {
                 while let Some(cur) = self.current {
-                    let target = match __DEFAULT_CHILD[cur as usize] {
+                    // SAFETY: see sync branch — same invariant.
+                    let target = match unsafe { *__DEFAULT_CHILD.get_unchecked(cur as usize) } {
                         Some(t) => t,
                         None => return,
                     };
@@ -3180,8 +3206,12 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(not(any(feature = "tokio", feature = "embassy")))]
             fn do_terminate(&mut self) {
                 if let Some(cur) = self.current {
-                    let (s, e) = __TERMINATE_RANGE[cur as usize];
-                    let path = &__TERMINATE_DATA[s as usize..e as usize];
+                    // SAFETY: cur < #n_states (codegen invariant). The
+                    // (s, e) tuple was emitted with 0 <= s <= e <= len.
+                    let (s, e) = unsafe { *__TERMINATE_RANGE.get_unchecked(cur as usize) };
+                    let path = unsafe {
+                        __TERMINATE_DATA.get_unchecked(s as usize..e as usize)
+                    };
                     for &sid in path {
                         self.exit_state(sid);
                     }
@@ -3195,8 +3225,11 @@ pub fn generate(ir: &Ir) -> TokenStream {
             #[cfg(any(feature = "tokio", feature = "embassy"))]
             async fn do_terminate(&mut self) {
                 if let Some(cur) = self.current {
-                    let (s, e) = __TERMINATE_RANGE[cur as usize];
-                    let path = &__TERMINATE_DATA[s as usize..e as usize];
+                    // SAFETY: see sync branch — same invariant.
+                    let (s, e) = unsafe { *__TERMINATE_RANGE.get_unchecked(cur as usize) };
+                    let path = unsafe {
+                        __TERMINATE_DATA.get_unchecked(s as usize..e as usize)
+                    };
                     for &sid in path {
                         self.exit_state(sid).await;
                     }
