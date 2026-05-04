@@ -2,119 +2,163 @@
 #
 # ─── Harness migration (iai-callgrind 0.16 → gungraun 0.18) ──────────
 #
-# Switched from iai-callgrind to gungraun (a maintained fork). The
-# gungraun harness wraps each bench body with a slightly thicker shim
-# (extra `__gungraun_wrapper_id_mod_<id>::<id>` indirection, more
-# careful black_box / setup-result handoff), so absolute instruction
-# counts are NOT comparable to the iai-callgrind 0.16 numbers in git
-# history. The HSM dispatch work itself didn't change between the two
-# runs — the harness is just instrumenting more.
+# Switched from iai-callgrind to gungraun (the renamed continuation —
+# crates.io shows iai-callgrind frozen at 0.16.1; the gh repo
+# iai-callgrind/iai-callgrind redirects to gungraun/gungraun). Same
+# valgrind backend, same callgrind output format. Old named baselines
+# (pre_lca_fix, before_*) are gone; their deltas live in the historical
+# block at the bottom for context.
 #
-# Below are the gungraun_initial baselines. Old named baselines
-# (pre_lca_fix, before_path_precompute, …) are gone; their deltas live
-# in the historical comment block at the bottom for context, but they
-# are not directly comparable to current numbers.
-#
-# Re-run with:
-#
-#     cargo bench --bench dispatch
-#
-# Save a named baseline for diffing:
-#
-#     cargo bench --bench dispatch -- --save-baseline=before_<your_change>
-#     <change>
-#     cargo bench --bench dispatch -- --baseline=before_<your_change>
+# Re-run:    cargo bench --bench dispatch
+# Diff:      cargo bench --bench dispatch -- --baseline=gungraun_initial
+# Snapshot:  cargo bench --bench dispatch -- --save-baseline=before_<change>
 #
 # Numbers below are from a 6.19.14-zen kernel x86_64 box, valgrind
 # 3.25.1, gungraun 0.18.2, gungraun-runner 0.18.2, --release.
+#
+# Saved baselines (all under target/gungraun/...):
+#   gungraun_initial          first gungraun-harness run, post-migration
+#   after_opt2_unchecked      get_unchecked for codegen table indexing
+#   after_opt4_timer_inline   pop_expired_nonempty inline (current numbers)
+#   before_more_opts          alias for after_opt4_timer_inline (sweep base)
 
 dispatch::dispatch::h2_cold_start cold:setup_h2_cold()
-  Instructions:                         131
-  L1 Hits:                              181
-  RAM Hits:                              12
-  Estimated Cycles:                     601
+  Instructions:                          24
+  L1 Hits:                               39
+  RAM Hits:                               3
+  Estimated Cycles:                     144
 
 dispatch::dispatch::h2_warm_lateral warm:setup_h2_warm()
-  Instructions:                         119
-  L1 Hits:                              168
-  RAM Hits:                               7
-  Estimated Cycles:                     413
+  Instructions:                          53
+  L1 Hits:                               77
+  RAM Hits:                               4
+  Estimated Cycles:                     217
 
 dispatch::dispatch::h4_cross_tree cross:setup_h4_warm()
-  Instructions:                         128
-  L1 Hits:                              182
-  RAM Hits:                               7
-  Estimated Cycles:                     427
+  Instructions:                          93
+  L1 Hits:                              130
+  RAM Hits:                              10
+  Estimated Cycles:                     480
 
 dispatch::dispatch::h4_up up:setup_h4_warm()
-  Instructions:                         114
-  L1 Hits:                              163
-  RAM Hits:                               6
-  Estimated Cycles:                     373
+  Instructions:                          88
+  L1 Hits:                              125
+  RAM Hits:                               8
+  Estimated Cycles:                     405
 
 dispatch::dispatch::h4_self self_:setup_h4_warm()
-  Instructions:                         128
-  L1 Hits:                              182
-  RAM Hits:                               7
-  Estimated Cycles:                     427
+  Instructions:                          93
+  L1 Hits:                              130
+  RAM Hits:                              10
+  Estimated Cycles:                     480
 
 dispatch::dispatch::h8_cross_tree cross:setup_h8_warm()
-  Instructions:                          97
-  L1 Hits:                              137
-  RAM Hits:                               8
-  Estimated Cycles:                     417
+  Instructions:                          53
+  L1 Hits:                               76
+  RAM Hits:                               5
+  Estimated Cycles:                     251
 
 dispatch::dispatch::bubble_leaf leaf:setup_bubble_warm()
-  Instructions:                         129
-  L1 Hits:                              183
-  RAM Hits:                               9
-  Estimated Cycles:                     498
+  Instructions:                          94
+  L1 Hits:                              132
+  RAM Hits:                              11
+  Estimated Cycles:                     517
 
 dispatch::dispatch::bubble_mid mid:setup_bubble_warm()
-  Instructions:                         129
-  L1 Hits:                              183
-  RAM Hits:                               9
-  Estimated Cycles:                     498
+  Instructions:                          94
+  L1 Hits:                              133
+  RAM Hits:                              10
+  Estimated Cycles:                     483
 
 dispatch::dispatch::bubble_top top:setup_bubble_warm()
-  Instructions:                         129
-  L1 Hits:                              184
-  RAM Hits:                               8
-  Estimated Cycles:                     464
-
-dispatch::dispatch::timer_fire_dispatch fire:setup_timer_fire_armed()
-  Instructions:                         221
-  L1 Hits:                              294
-  RAM Hits:                              12
-  Estimated Cycles:                     714
-
-dispatch::dispatch::terminate_event quit:setup_term_warm()
-  Instructions:                          68
-  L1 Hits:                               99
-  RAM Hits:                               7
-  Estimated Cycles:                     344
-
-dispatch::dispatch::bubble_cross_tree switch:setup_bubble_cross_warm()
-  Instructions:                         120
-  L1 Hits:                              167
-  RAM Hits:                               9
+  Instructions:                          93
+  L1 Hits:                              132
+  RAM Hits:                              10
   Estimated Cycles:                     482
 
-dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
-  Instructions:                         500
-  L1 Hits:                              689
-  RAM Hits:                              18
-  Estimated Cycles:                    1319
+dispatch::dispatch::timer_fire_dispatch fire:setup_timer_fire_armed()
+  Instructions:                         175
+  L1 Hits:                              237
+  RAM Hits:                               7
+  Estimated Cycles:                     482
 
+dispatch::dispatch::terminate_event quit:setup_term_warm()
+  Instructions:                          53
+  L1 Hits:                               81
+  RAM Hits:                               5
+  Estimated Cycles:                     256
+
+dispatch::dispatch::bubble_cross_tree switch:setup_bubble_cross_warm()
+  Instructions:                          85
+  L1 Hits:                              116
+  RAM Hits:                              11
+  Estimated Cycles:                     501
+
+dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
+  Instructions:                         439
+  L1 Hits:                              613
+  RAM Hits:                              17
+  Estimated Cycles:                    1213
+
+# ─── Migration deltas (gungraun_initial → current) ──────────────────
+#
+# Two optimization passes landed under gungraun:
+#
+#   Opt #2: get_unchecked for codegen table indexing
+#     __DISPATCH, __DEFAULT_CHILD, __PATH_RANGE/_DATA, __TERMINATE_*
+#     all index by codegen-emitted state ids that are bounded by
+#     construction. Replacing the [idx] / [s..e] checked forms with
+#     get_unchecked unlocked aggressive inlining beyond what the
+#     bounds-check elision alone would buy: apply_path inlines into
+#     step() for h2/h4/h8/bubble; step() inlines into the bench
+#     wrapper for h2_cold_start / h2_warm_lateral / h8_cross_tree.
+#     The cold-path enter chain on h2_cold_start collapses to one
+#     u16 store. Bench impact:
+#       h2_cold_start          131 →  24   -82%
+#       h2_warm_lateral        119 →  53   -55%
+#       h8_cross_tree           97 →  53   -45%
+#       bubble_cross_tree      120 →  85   -29%
+#       h4_cross_tree/_self    128 →  93   -27%
+#       bubble_leaf/mid/top    129 →  94   -27%
+#       h4_up                  114 →  88   -23%
+#       terminate_event         68 →  53   -22%
+#       chain_self_emit        500 → 439   -12%
+#       timer_fire_dispatch    221 → 212    -4%
+#
+#   Opt #4: TimerTable::pop_expired_nonempty inline
+#     Drop #[cold], add #[inline]. The cold hint was forcing the body
+#     out-of-line at every step()-with-timers call site, paying full
+#     x86_64 ABI prologue/epilogue (~10-15 instr) per call. Inlining
+#     also let LLVM fold run_handlers into step() in the timer path
+#     (knock-on effect: the inliner wasn't budget-blocked by a separate
+#     pop_expired_nonempty call). Bench impact:
+#       timer_fire_dispatch    212 → 175   -17%
+#       (others unchanged)
+#
+# Tried but reverted:
+#
+#   Opt #1: current: Option<u16> → u16 with u16::MAX sentinel.
+#     Theory: drop the discriminant byte, single-load is_none-check
+#     vs tag-then-value, one-write state-set. In practice net -9 instr
+#     across all 13 benches (-0.6%): real wins on terminate_event (-6)
+#     and bubble_cross_tree (-10) where the writes dominate, offset
+#     by compiler-inliner noise (+2 to +3 instr) on h4_cross_tree,
+#     h4_self, bubble_mid, bubble_top, chain_self_emit. Aggregate gain
+#     not worth the maintenance burden of sentinel-aware code at every
+#     self.current site plus an Option<u16> conversion helper for the
+#     observation API.
+#
+#   Opt #3: hand-tighten run_action's EmitProxy/ActionContext init.
+#     Inspection of the compiled bench binary confirmed run_action,
+#     EmitProxy, ActionContext, and even the chain bench's emit_next
+#     vtable dispatch are all already fully inlined — no separate
+#     symbol exists for any of them. Already free; no change made.
+#
 # ─── Historical context (iai-callgrind era, NOT comparable) ─────────
 #
 # The codebase went through six dispatch-path optimization passes
-# under iai-callgrind 0.16 before this harness migration. Cumulative
-# results vs. the original O(H²) LCA scan:
-#
-#   h8_cross_tree    -82% instr / -72% cycles    (deepest LCA stress)
-#   terminate_event  -75% instr (combined)       (precomputed exit table)
-#
+# under iai-callgrind 0.16 before the harness migration. Cumulative
+# h8_cross_tree result vs. the original O(H²) LCA scan: -82% instr.
 # The passes, in order:
 #
 #  1. LCA contains() → O(H) ancestor-walk
@@ -125,7 +169,8 @@ dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
 #  6. Precomputed __TERMINATE_DATA + queue.clear() + u128→u64 nanoseconds
 #
 # Pre-migration absolute numbers (iai-callgrind 0.16, for reference
-# only; do not subtract from gungraun numbers):
+# only; not directly comparable to gungraun numbers because the
+# gungraun bench wrapper instruments slightly more):
 #
 #   h2_cold_start            38 instr   201 cycles
 #   h2_warm_lateral          84 instr   397 cycles
@@ -139,7 +184,21 @@ dispatch::dispatch::chain_self_emit chain:setup_chain_warm()
 #   bubble_cross_tree        94 instr   444 cycles
 #   chain_self_emit         419 instr  1301 cycles
 #
-# Most of the absolute-instruction increase under gungraun is
-# harness, not HSM. Comparable iai-callgrind/gungraun deltas (e.g.,
-# h8_cross_tree 93→97, terminate_event 69→68) confirm the dispatch
-# work itself is unchanged.
+# Bench coverage:
+#
+#   `timer_fire_dispatch` — only bench that exercises pop_expired's
+#     non-empty branch and `dispatch_trigger`.
+#   `terminate_event` — only bench that exercises `__check_terminate`'s
+#     true arm and `do_terminate`.
+#   `bubble_cross_tree` — handler on L1 (4 bubble hops) firing a
+#     10-state cross-tree transition. Realistic HSM worst case.
+#
+# ─── Measurement floor ───────────────────────────────────────────────
+#
+# After Opt #2, the gungraun bench-harness wrapper is the dominant
+# fixed cost on simple benches (~28-49 instr per bench). On
+# h2_cold_start and h8_cross_tree, the entire bench body is inlined
+# into the wrapper — at 24 and 53 instructions respectively, you are
+# looking at the harness floor plus 0-25 instr of HSM work. Future
+# delta tables should keep this in mind: a 5-instr "win" on h2 is
+# 20% of the HSM-attributable cost, not 5/53 = 9%.
