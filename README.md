@@ -155,7 +155,7 @@ For nested-state hierarchies, `emit(...)`, `terminate`, and
   async fn that runs while a state is active and is dropped when you
   leave. Multiple durings on the active path race concurrently and
   split-borrow disjoint context fields — no `RefCell`, no `Mutex`,
-  no `unsafe`.
+  no `unsafe` in your code.
 - **`m.run().await` is the whole task.** It races durings, the event
   channel, and timer deadlines, and parks the executor between them.
   No manual loop, no busy-waits, no `Send` headaches under
@@ -171,9 +171,11 @@ For nested-state hierarchies, `emit(...)`, `terminate`, and
   input produces a byte-identical journal. The runtime's event
   queue and timer table are formally verified — Creusot + Why3 +
   alt-ergo + z3 discharge the proofs (`just verify`).
-- **No heap, no `unsafe`, no dynamic dispatch.** Pure monomorphized
-  code. `no_std` clean by default. Designed to fit on a Cortex-M0+
-  under embassy.
+- **No heap, no dynamic dispatch.** Pure monomorphized code.
+  `no_std` clean by default. Designed to fit on a Cortex-M0+ under
+  embassy. The macro emits a small amount of `unsafe` (bounded
+  `get_unchecked` indexing into codegen-emitted tables whose layout
+  guarantees `idx < len` by construction); your code is `unsafe`-free.
 
 ## How a chart behaves — the rules
 
