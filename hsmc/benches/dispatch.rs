@@ -1,7 +1,7 @@
 //! Deterministic instruction-count benches for the dispatch hot path.
 //!
 //! Run with `cargo bench --bench dispatch` (Linux only — uses
-//! iai-callgrind + valgrind).
+//! gungraun + valgrind).
 //!
 //! Each bench measures one dispatch kind in isolation:
 //!  - `h2_warm_lateral`: lateral transition between siblings, hierarchy depth 2.
@@ -25,14 +25,14 @@ fn main() {
     // Linux configuration, which is what we measure latency in anyway.
     eprintln!(
         "hsmc dispatch benches require Linux + default features \
-         (iai-callgrind + valgrind, sync action impls)."
+         (gungraun + valgrind, sync action impls)."
     );
 }
 
 #[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
-use hsmc::{statechart, Duration};
+use gungraun::{library_benchmark, library_benchmark_group, main};
 #[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
-use iai_callgrind::{library_benchmark, library_benchmark_group, main};
+use hsmc::{statechart, Duration};
 #[cfg(all(target_os = "linux", not(any(feature = "tokio", feature = "embassy"))))]
 use std::hint::black_box;
 
@@ -410,7 +410,7 @@ mod bubble_cross {
 
 // ──────────────────────────────────────────────────────────────────────
 // Setup helpers. Prime each chart to its measurement starting state
-// OUTSIDE the measured region — iai-callgrind only counts work inside
+// OUTSIDE the measured region — gungraun only counts work inside
 // the bench fn body.
 // ──────────────────────────────────────────────────────────────────────
 

@@ -54,7 +54,7 @@ trybuild = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "test-util"] }
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
-iai-callgrind = "0.16"
+gungraun = "0.18"
 
 [[example]]
 name = "microwave"

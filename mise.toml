@@ -16,10 +16,11 @@
 rust = { version = "stable", components = "clippy,rustfmt,rust-src,llvm-tools-preview", targets = "thumbv7em-none-eabihf,thumbv6m-none-eabi,thumbv8m.main-none-eabihf,riscv32imac-unknown-none-elf" }
 
 # ── Cargo subcommands the justfile drives ───────────────────────────
-"cargo:cargo-nextest"  = "latest"   # `just test`, `just dev`
-"cargo:cargo-llvm-cov" = "latest"   # `just coverage`
-"cargo:cargo-mutants"  = "latest"   # `just mutants`
-"cargo:cargo-audit"    = "latest"   # `just audit`
+"cargo:cargo-nextest"   = "latest"   # `just test`, `just dev`
+"cargo:cargo-llvm-cov"  = "latest"   # `just coverage`
+"cargo:cargo-mutants"   = "latest"   # `just mutants`
+"cargo:cargo-audit"     = "latest"   # `just audit`
+"cargo:gungraun-runner" = "latest"   # `cargo bench --bench dispatch` (valgrind harness)
 
 # ── Build orchestration ─────────────────────────────────────────────
 just = "latest"
