@@ -316,7 +316,7 @@ dependencies = [
 
 [[package]]
 name = "hsmc"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "defmt 0.3.100",
  "embassy-futures",
@@ -333,7 +333,7 @@ dependencies = [
 
 [[package]]
 name = "hsmc-macros"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "hsmc",
  "proc-macro2",
@@ -344,7 +344,7 @@ dependencies = [
 
 [[package]]
 name = "hsmc-verification"
-version = "0.5.1"
+version = "0.6.0"
 dependencies = [
  "creusot-std",
  "hsmc",

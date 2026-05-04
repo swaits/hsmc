@@ -57,9 +57,9 @@ Add to `Cargo.toml`:
 
 ```toml
 [dependencies]
-hsmc = { version = "0.5", features = ["embassy"] }   # firmware
+hsmc = { version = "0.6", features = ["embassy"] }   # firmware
 # or
-hsmc = { version = "0.5", features = ["tokio"] }     # desktop / tests
+hsmc = { version = "0.6", features = ["tokio"] }     # desktop / tests
 ```
 
 Run the Blinker under tokio:
@@ -479,7 +479,7 @@ you're done — chart events interleave with the rest of your defmt
 output:
 
 ```toml
-hsmc = { version = "0.5", features = ["embassy", "trace-defmt"] }
+hsmc = { version = "0.6", features = ["embassy", "trace-defmt"] }
 ```
 
 For a desktop crate, pick `log` or `tracing` and do that framework's

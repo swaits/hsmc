@@ -4,6 +4,132 @@ All notable changes to this workspace are documented here. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/).
 
+## 0.6.0 — 2026-05-04
+
+Performance pass on the dispatch hot path + a fully-audited bounded
+`unsafe` surface in the generated code. The bench harness moves from
+`iai-callgrind` to `gungraun` (the renamed continuation, since
+iai-callgrind is frozen at 0.16.1).
+
+### Performance
+
+Two optimization passes land. Bench impact (instruction counts vs.
+the post-migration baseline; release-mode, valgrind 3.25.1):
+
+```
+                       before  after   Δ
+h2_cold_start             131    24    -82%
+h2_warm_lateral           119    53    -55%
+h8_cross_tree              97    53    -45%
+bubble_cross_tree         120    85    -29%
+h4_cross_tree / h4_self   128    93    -27%
+bubble_leaf/mid/top       129    94    -27%
+h4_up                     114    88    -23%
+terminate_event            68    53    -22%
+timer_fire_dispatch       221   175    -21%
+chain_self_emit           500   439    -12%
+```
+
+- **`get_unchecked` on codegen-emitted dispatch tables.** `__DISPATCH`,
+  `__DEFAULT_CHILD`, `__PATH_RANGE`, `__PATH_DATA`, `__TERMINATE_RANGE`,
+  and `__TERMINATE_DATA` are all indexed by codegen-produced state ids
+  whose bounds are guaranteed at codegen time. Replacing the
+  bounds-checked `[idx]` / `[s..e]` forms with `slice::get_unchecked`
+  unlocks aggressive inlining beyond what plain bounds-check elision
+  would buy: `apply_path` inlines into `step()` for h2 / h4 / h8 /
+  bubble; `step()` itself inlines into the bench wrapper for
+  h2_cold_start / h2_warm_lateral / h8_cross_tree. The cold-path enter
+  chain on h2_cold_start collapses to a single `u16` store.
+- **`pop_expired_nonempty` inlining.** The `#[cold]` attribute was
+  forcing the body out-of-line at every step()-with-timers call site,
+  paying full x86_64 ABI prologue/epilogue (~10–15 instructions) per
+  call. Drop `#[cold]` and add `#[inline]` so LLVM folds it into the
+  codegen-emitted timer-pop block. As a knock-on effect, `run_handlers`
+  also inlines into `step()` on the timer path.
+
+### Bounded `unsafe` in generated code (was: "no `unsafe`")
+
+The performance work introduces six bounded `unsafe { get_unchecked }`
+blocks per generated chart. User code (chart definitions, action
+bodies, `during:` blocks, public API surface) remains `unsafe`-free.
+The README and spec rule 12 are updated to reflect this honestly. The
+audit story is documented end-to-end in
+[`docs/004. unsafe-safety-contract.md`](docs/004.%20unsafe-safety-contract.md);
+a short summary:
+
+- **Compile-time const-eval.** Each chart now contains a
+  `const _: () = { ... };` block that re-states the safety preconditions
+  as `assert!`s evaluated by `rustc`'s const evaluator at user
+  `cargo check` time. Any chart whose emitted tables violate the
+  invariants fails the build with a named diagnostic
+  (`E0080: evaluation panicked: ...`) before reaching runtime.
+- **Runtime `debug_assert!` companions.** Every `unsafe` block has a
+  paired `debug_assert!` of the same predicate. Free in `--release`;
+  in dev/test/miri builds, every dispatch through the 68 hsmc behavior
+  tests exercises the assertions.
+- **Miri.** `cargo +nightly miri test -p hsmc` runs 20 unit + 46
+  behavior tests under the UB interpreter. All clean.
+- **Mutation testing.** `cargo mutants` against the safety-relevant
+  codegen functions: 99 of 101 mutants caught (98%) when run with
+  `--test-package hsmc --features hsmc/tokio,hsmc/journal`. The 2
+  remaining are equivalent mutants — transformations that provably
+  produce identical `__PATH_RANGE` / `__PATH_DATA` output and so
+  cannot be distinguished by any behavior test (formal analysis in
+  the safety contract doc).
+- **Creusot-verified validator.** `verification/src/paths.rs` carries
+  Pearlite-annotated functions that decide the safety predicates for
+  arbitrary inputs; their `#[ensures(... forall ...)]` clauses pin the
+  universal property the const-eval block evaluates per chart.
+  `correspondence_paths.rs` includes a test that directly compares the
+  validator and the const-eval block's predicate expression on
+  representative and adversarial inputs.
+
+`just safety` runs the const-eval, debug_assert, miri, and mutants
+phases as one command and mirrors the audit matrix in
+`docs/004. unsafe-safety-contract.md`. `just verify` discharges the
+Creusot VCs.
+
+### Bench harness migration: `iai-callgrind` → `gungraun`
+
+`iai-callgrind` on crates.io is frozen at 0.16.1; the project has been
+renamed to `gungraun` (same maintainers, same valgrind backend, same
+callgrind output format — `github.com/iai-callgrind/iai-callgrind`
+redirects to `github.com/gungraun/gungraun`). Migration is mechanical:
+
+- `Cargo.toml` dev-dep: `iai-callgrind = "0.16"` → `gungraun = "0.18"`
+- `mise.toml`: replace the `iai-callgrind-runner` install with
+  `cargo:gungraun-runner`
+- benchmark source: `use iai_callgrind::...` → `use gungraun::...`
+  (macro names identical: `library_benchmark`, `library_benchmark_group`,
+  `main!`)
+- output dir: `target/iai/...` → `target/gungraun/...`
+- environment variables: `IAI_CALLGRIND_*` → `GUNGRAUN_*`
+
+Absolute instruction counts shifted slightly between the two harnesses
+because gungraun's bench wrapper instruments a few more setup/teardown
+instructions per bench (~+4–5 per bench, all in harness, none in HSM).
+The historical iai-callgrind numbers are kept in
+`hsmc/benches/baseline.txt` for reference but the post-migration
+`gungraun_initial` is the comparison point going forward.
+
+### Documentation
+
+- New: `docs/004. unsafe-safety-contract.md` — full inventory of the
+  six unsafe blocks, the invariants they rely on, and the five-layer
+  audit (const-eval, debug_assert, miri, mutants, Creusot validator).
+- Updated: `docs/000` rule 12 — was "no unsafe in generated code", now
+  "bounded unsafe in generated code, none in user code" with a pointer
+  to docs/004.
+- Updated: `verification/INVARIANTS.md` — new "Path tables" section
+  with five spec rows for the path-table predicates. Phase 4 (universal
+  proof of `compute_transition_paths`) reclassified as Phase 5 since
+  the per-chart const-eval + verified validator is operationally
+  equivalent for end users.
+- Updated: README — replaces the bare "no `unsafe`" claim with an
+  honest one-paragraph summary pointing at docs/004; install snippets
+  bumped to `version = "0.6"`.
+- New: `just safety` recipe wires up the full unsafe-audit matrix.
+
 ## 0.5.1 — 2026-04-29
 
 Docs and licensing cleanup. No code or behavior changes.
