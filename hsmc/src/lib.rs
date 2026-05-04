@@ -895,7 +895,7 @@ pub mod __private {
             }
         }
 
-        #[cold]
+        #[inline]
         fn pop_expired_nonempty(&mut self, depth: &[u8]) -> Option<(u16, u16)> {
             let mut best: Option<usize> = None;
             for (i, e) in self.entries.iter().enumerate() {
