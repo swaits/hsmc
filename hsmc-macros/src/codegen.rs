@@ -2462,6 +2462,84 @@ pub fn generate(ir: &Ir) -> TokenStream {
         const __DISPATCH: [(u16, &'static [u16], Option<u16>); #n_dispatch] =
             [#(#dispatch_lit),*];
 
+        // ── Compile-time table-invariant checks ─────────────────────
+        //
+        // Every `unsafe { ... .get_unchecked(...) }` in this generated
+        // module relies on bounds the codegen establishes when emitting
+        // the static tables above. Codify those bounds as const-eval
+        // assertions: any future codegen change that produces an
+        // out-of-range index trips this at *build* time rather than
+        // making it to runtime where it would be UB. A const block
+        // that needs to evaluate at type-check time is the strongest
+        // check we can express in stable Rust.
+        const _: () = {
+            // __PATH_RANGE invariants: for every (from, to) pair the
+            // emitted (s, m, e) triple slices __PATH_DATA in two
+            // contiguous, non-overlapping ranges (exit then enter).
+            // Required: 0 <= s <= m <= e <= __PATH_DATA.len(). All
+            // path entries are themselves valid state ids in
+            // 0..#n_states, but enforcing that here would require
+            // unwrapping every entry; it is enforced indirectly via
+            // the per-id checks below and the codegen test suite.
+            let mut i = 0usize;
+            while i < __PATH_RANGE.len() {
+                let (s, m, e) = __PATH_RANGE[i];
+                assert!(s as usize <= m as usize, "__PATH_RANGE: s > m");
+                assert!(m as usize <= e as usize, "__PATH_RANGE: m > e");
+                assert!(
+                    e as usize <= __PATH_DATA.len(),
+                    "__PATH_RANGE: e past __PATH_DATA end"
+                );
+                i += 1;
+            }
+
+            // __TERMINATE_RANGE invariants: same shape, one (s, e) per
+            // state — the full exit chain up to and including root.
+            let mut i = 0usize;
+            while i < __TERMINATE_RANGE.len() {
+                let (s, e) = __TERMINATE_RANGE[i];
+                assert!(s as usize <= e as usize, "__TERMINATE_RANGE: s > e");
+                assert!(
+                    e as usize <= __TERMINATE_DATA.len(),
+                    "__TERMINATE_RANGE: e past __TERMINATE_DATA end"
+                );
+                i += 1;
+            }
+
+            // __DEFAULT_CHILD invariants: every Some(t) names a state
+            // id < N_STATES. None is the no-default sentinel.
+            let mut i = 0usize;
+            while i < __DEFAULT_CHILD.len() {
+                if let Some(t) = __DEFAULT_CHILD[i] {
+                    assert!(
+                        (t as usize) < __DEFAULT_CHILD.len(),
+                        "__DEFAULT_CHILD: target id past N_STATES"
+                    );
+                }
+                i += 1;
+            }
+
+            // __PATH_DATA itself: every state id stored is < N_STATES.
+            let mut i = 0usize;
+            while i < __PATH_DATA.len() {
+                assert!(
+                    (__PATH_DATA[i] as usize) < __DEFAULT_CHILD.len(),
+                    "__PATH_DATA: state id past N_STATES"
+                );
+                i += 1;
+            }
+
+            // __TERMINATE_DATA: same.
+            let mut i = 0usize;
+            while i < __TERMINATE_DATA.len() {
+                assert!(
+                    (__TERMINATE_DATA[i] as usize) < __DEFAULT_CHILD.len(),
+                    "__TERMINATE_DATA: state id past N_STATES"
+                );
+                i += 1;
+            }
+        };
+
         #name_helpers
 
         #[allow(dead_code, unreachable_patterns)]
