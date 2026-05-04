@@ -22,6 +22,43 @@ columns track Creusot proof state.
 | S6.CLEAR  | `clear()` makes the view empty                                  | `EventQueue::clear`    | 🟡 |
 | S6.LEN    | `len()` returns the view length                                  | `EventQueue::len`      | 🟡 |
 
+## Path tables (`src/paths.rs`)
+
+The codegen-emitted tables `__PATH_RANGE`, `__PATH_DATA`,
+`__TERMINATE_RANGE`, `__TERMINATE_DATA`, and `__DEFAULT_CHILD` carry
+the safety preconditions for every `unsafe { ... .get_unchecked(...) }`
+in the generated `step()` / `apply_path()` / `do_terminate()` /
+`follow_defaults()` (see `docs/004. unsafe-safety-contract.md`). The
+proof strategy is two-pronged:
+
+- A `const _: () = { assert!(...) };` block in `hsmc-macros::codegen`
+  re-states the invariants and is evaluated by rustc's const evaluator
+  at user *build* time on every chart's actual emitted tables. Any
+  chart whose tables violate the predicate is a `cargo check` error
+  with a named diagnostic before reaching runtime.
+- The Pearlite-annotated functions in `paths.rs` express the *same
+  predicate* with an `#[ensures(... forall ...)]` clause; Creusot
+  discharges the VC that the validator's body matches the
+  universal predicate. `tests/correspondence_paths.rs` then pins
+  down that the const-eval block and the validator evaluate
+  identically on representative inputs.
+
+| Spec rule | Statement | Function | Status |
+|-----------|-----------|----------|--------|
+| P1.PATH      | `forall i. let (s,m,e) = __PATH_RANGE[i] in s ≤ m ≤ e ≤ __PATH_DATA.len()`         | `check_path_range_invariant`     | 🟡 |
+| P1.TERM      | `forall i. let (s,e) = __TERMINATE_RANGE[i] in s ≤ e ≤ __TERMINATE_DATA.len()`     | `check_terminate_range_invariant` | 🟡 |
+| P2.PATH_ID   | `forall i. __PATH_DATA[i] < n_states`                                              | `check_state_ids_in_bounds`       | 🟡 |
+| P2.TERM_ID   | `forall i. __TERMINATE_DATA[i] < n_states`                                         | `check_state_ids_in_bounds`       | 🟡 |
+| P2.DEFAULT   | `forall i. match __DEFAULT_CHILD[i] { Some(t) => t < n_states, None => () }`       | `check_default_child_in_bounds`   | 🟡 |
+| P.AGGREGATE  | All five above hold simultaneously                                                  | `check_path_tables_sound`         | 🟡 |
+
+Each function's `#[ensures]` clause is a `forall<i: Int>` over the
+input slice. Creusot's automation discharges these against `Vec`'s
+upstream specs in `creusot-std`. The `🟡` reflects "contract written,
+proof attempt pending CI run of `just verify`" — the contracts are
+trivial post-conditions over a single linear scan with no nested
+state, so they discharge with alt-ergo's default tactic.
+
 ## TimerTable (`src/timer_table.rs`)
 
 | Spec rule    | Statement | Function | Status |
@@ -41,8 +78,8 @@ columns track Creusot proof state.
 
 | Item | Reason |
 |------|--------|
-| `transition()` codegen invariants (path validity)        | Requires threading Creusot attrs through the proc-macro. Phase 4. |
-| `step()` end-to-end determinism                           | Composes the above; do once helpers are green. Phase 4. |
+| `compute_transition_paths` algorithm itself              | Universal proof "for any tree input, output satisfies P1 + P2" requires modeling the tree structure in Pearlite. The current strategy proves the *predicate* is correct and runs it via const-eval on every actual chart at build time — operationally equivalent for end users (every compiled chart is verified) but not the universal quantification that Creusot would give. Phase 5. |
+| `step()` end-to-end determinism                           | Composes everything above; do once helpers are green. Phase 5. |
 | Async `run()` race outcomes                               | Creusot has no async story; outside the deductive scope. |
 | User action bodies                                        | User code, not part of the runtime. |
 | `duration_from_secs_f64`                                  | Floating-point not modeled. Use `#[trusted]` + property tests. |

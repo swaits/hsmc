@@ -44,4 +44,5 @@
 // use `std::vec::Vec` (via creusot-std's specs) directly.
 
 pub mod event_queue;
+pub mod paths;
 pub mod timer_table;
