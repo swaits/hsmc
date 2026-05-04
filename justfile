@@ -151,6 +151,33 @@ audit:
     cargo audit
     @echo "✅ Security checks passed"
 
+# Run the full unsafe-audit matrix: const-eval at build, debug_assert!
+# in debug tests, Miri for UB, mutants on the safety-relevant codegen.
+# Mirrors the audit described in `docs/004. unsafe-safety-contract.md`.
+[script]
+safety:
+    echo "🔒 Unsafe safety audit"
+    echo ""
+    echo "1/4 — Compile-time const-eval (any out-of-range table entry"
+    echo "      fails cargo check with E0080)..."
+    cargo check --workspace --all-targets
+    echo ""
+    echo "2/4 — Runtime debug_assert! in dev tests (every unsafe site"
+    echo "      checks its bound on every dispatch)..."
+    cargo nextest run --workspace --no-default-features
+    cargo nextest run --workspace --features tokio
+    echo ""
+    echo "3/4 — Miri (UB detector under interpreted Rust)..."
+    just miri
+    echo ""
+    echo "4/4 — Mutation testing on safety-relevant codegen fns..."
+    cargo mutants -p hsmc-macros \
+        -F "compute_transition_paths|compute_terminate_paths|compute_event_dispatch" \
+        --jobs 4 --no-shuffle
+    echo ""
+    echo "✅ Unsafe audit complete. See docs/004. unsafe-safety-contract.md"
+    echo "   for which checks cover which failure modes."
+
 # Run Miri for UB detection (auto-installs nightly + miri component if missing).
 [script]
 miri:

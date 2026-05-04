@@ -173,9 +173,14 @@ For nested-state hierarchies, `emit(...)`, `terminate`, and
   alt-ergo + z3 discharge the proofs (`just verify`).
 - **No heap, no dynamic dispatch.** Pure monomorphized code.
   `no_std` clean by default. Designed to fit on a Cortex-M0+ under
-  embassy. The macro emits a small amount of `unsafe` (bounded
-  `get_unchecked` indexing into codegen-emitted tables whose layout
-  guarantees `idx < len` by construction); your code is `unsafe`-free.
+  embassy. The macro emits six bounded `unsafe { get_unchecked }`
+  blocks per chart for hot-path table indexing; their preconditions
+  are checked at build time by const-eval, in dev/test by
+  `debug_assert!`, and under `cargo +nightly miri test`. Full
+  inventory and audit in
+  [`docs/004. unsafe-safety-contract.md`](docs/004.%20unsafe-safety-contract.md).
+  Your chart, your action bodies, and your durings stay
+  `unsafe`-free.
 
 ## How a chart behaves — the rules
 
